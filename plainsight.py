@@ -9,6 +9,7 @@ from colorama import Fore as foreground_colour
 from colorama import Style, init
 import dns.resolver
 import time
+import os
 import sys
 
 colorama.init(autoreset=True)
@@ -67,7 +68,7 @@ def print_general_exception(exception):
 def dns_txt_query(target):
 	dns_state = False
 	dns_result = dns.resolver.resolve(target, 'TXT')
-	checks = ["docusign", "atlassian", "jira"]
+	checks = read_from_file(f"{os.path.dirname(sys.argv[0])}/definitions/dns_txt_strings.txt")
 	verbose(colour_output(cyan_text,"[~] Checking if DNS TXT records contain the following strings: \n" + ', '.join(checks) + "\n"))
 	try:
 		for record in dns_result:
@@ -76,6 +77,7 @@ def dns_txt_query(target):
 					print(colour_output(green_text, "[+] " + check + " record exists"))
 					verbose(colour_output(cyan_text,'TXT Record: ' + record.to_text()))
 					dns_state = True
+		print("")
 		if dns_state == False:
 			print(colour_output(red_text, "[-] Nothing interesting found.\n"))
 		else:
@@ -85,9 +87,9 @@ def dns_txt_query(target):
 	return dns_result
 
 def check_services(target):
-	services = ["okta.com", "sharepoint.com", "atlassian.net", "lightning.force.com", "zoom.com", "jira.com"]
+	public_services = read_from_file(f"{os.path.dirname(sys.argv[0])}/definitions/public_services.txt")
 	header = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-	for service in services:
+	for service in public_services:
 		url=("https://" + target + "." +  service)
 		
 		try:
@@ -116,7 +118,7 @@ def enumerate(target):
 		print_general_exception(e)
 	
 	try:
-		seperator("=","Checking services for " + target)
+		seperator("=","Checking for public services used by " + target)
 		name = target.split('.')[0]
 		services = check_services(name)
 	except Exception as e:
