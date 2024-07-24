@@ -1,0 +1,6 @@
+okta.com
+sharepoint.com
+atlassian.net
+lightning.force.com
+zoom.com
+jira.com
