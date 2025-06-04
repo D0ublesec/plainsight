@@ -104,7 +104,7 @@ def save_results_to_csv(results, output_dir, domain):
     """Save results to CSV format."""
     # Replace dots with underscores in domain name for filename
     safe_domain = domain.replace('.', '_')
-    csv_path = os.path.join(output_dir, f"{safe_domain}_services.csv")
+    csv_path = os.path.join(output_dir, f"services.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -145,9 +145,7 @@ def print_dns_results(dns_results, pretty_output=True):
 
 def save_dns_results(dns_results, output_dir, domain):
     """Save DNS results to a text file."""
-    # Replace dots with underscores in domain name for filename
-    safe_domain = domain.replace('.', '_')
-    dns_path = os.path.join(output_dir, f"{safe_domain}_dns.txt")
+    dns_path = os.path.join(output_dir, f"dns_records.txt")
     with open(dns_path, 'w') as f:
         f.write(f"DNS Records for {domain}\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -443,16 +441,18 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
                 print(f"{Colors.GREEN}[+] Found service: {url} (Status: {response.status_code}){Colors.RESET}")
             
             # Create service-specific directory
-            service_dir = os.path.join(output_dir, service.replace('.', '_'))
+            service_name = service.replace('.', '_')
+            safe_domain = domain.replace('.', '_')
+            service_dir = os.path.join(output_dir, service_name)
             os.makedirs(service_dir, exist_ok=True)
             
-            # Save HTML
-            html_path = os.path.join(service_dir, f"{company_name}.html")
+            # Save HTML with domain and service name
+            html_path = os.path.join(service_dir, f"index_{safe_domain}_{service_name}.html")
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(response.text)
             
-            # Take screenshot
-            screenshot_path = take_screenshot(driver, url, service_dir, company_name)
+            # Take screenshot with domain and service name
+            screenshot_path = take_screenshot(driver, url, service_dir, f"screenshot_{safe_domain}_{service_name}")
             
             return {
                 'url': url,
@@ -711,9 +711,7 @@ def get_company_logo(domain, output_dir, pretty_output=True):
 
 def save_dns_security_to_csv(security_results, output_dir, domain):
     """Save DNS security results to CSV format."""
-    # Replace dots with underscores in domain name for filename
-    safe_domain = domain.replace('.', '_')
-    csv_path = os.path.join(output_dir, f"{safe_domain}_dns_security.csv")
+    csv_path = os.path.join(output_dir, f"dns_security.csv")
     
     # Prepare CSV data
     csv_data = []
