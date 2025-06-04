@@ -102,7 +102,9 @@ def print_banner():
 
 def save_results_to_csv(results, output_dir, domain):
     """Save results to CSV format."""
-    csv_path = os.path.join(output_dir, f"{domain}_services.csv")
+    # Replace dots with underscores in domain name for filename
+    safe_domain = domain.replace('.', '_')
+    csv_path = os.path.join(output_dir, f"{safe_domain}_services.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -143,7 +145,9 @@ def print_dns_results(dns_results, pretty_output=True):
 
 def save_dns_results(dns_results, output_dir, domain):
     """Save DNS results to a text file."""
-    dns_path = os.path.join(output_dir, f"{domain}_dns.txt")
+    # Replace dots with underscores in domain name for filename
+    safe_domain = domain.replace('.', '_')
+    dns_path = os.path.join(output_dir, f"{safe_domain}_dns.txt")
     with open(dns_path, 'w') as f:
         f.write(f"DNS Records for {domain}\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -707,7 +711,9 @@ def get_company_logo(domain, output_dir, pretty_output=True):
 
 def save_dns_security_to_csv(security_results, output_dir, domain):
     """Save DNS security results to CSV format."""
-    csv_path = os.path.join(output_dir, f"{domain}_dns_security.csv")
+    # Replace dots with underscores in domain name for filename
+    safe_domain = domain.replace('.', '_')
+    csv_path = os.path.join(output_dir, f"{safe_domain}_dns_security.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -717,7 +723,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
         'category': 'DNSSEC',
         'feature': 'DNSSEC',
         'status': 'Enabled' if security_results['dnssec'] else 'Disabled',
-        'details': '; '.join(security_results['dnssec_errors']) if security_results['dnssec_errors'] else ''
+        'details': '',
+        'issues': '; '.join(security_results['dnssec_errors']) if security_results['dnssec_errors'] else ''
     })
     
     # DNS takeover risks
@@ -726,7 +733,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
             'category': 'DNS Takeover',
             'feature': risk['type'],
             'status': 'Risk',
-            'details': f"Target: {risk['target']} - {risk['risk']}"
+            'details': f"Target: {risk['target']}",
+            'issues': risk['risk']
         })
     
     # DNS misconfigurations
@@ -735,7 +743,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
             'category': 'DNS Misconfiguration',
             'feature': misconfig['type'],
             'status': 'Issue',
-            'details': misconfig['issue']
+            'details': '',
+            'issues': misconfig['issue']
         })
     
     # Email security - SPF
@@ -744,7 +753,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
         'category': 'Email Security',
         'feature': 'SPF',
         'status': 'Enabled' if spf['exists'] else 'Disabled',
-        'details': f"Record: {spf['record']}; Issues: {'; '.join(spf['issues'])}" if spf['exists'] else 'No SPF record found'
+        'details': spf['record'] if spf['exists'] else 'No SPF record found',
+        'issues': '; '.join(spf['issues']) if spf['issues'] else ''
     })
     
     # Email security - DKIM
@@ -753,7 +763,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
         'category': 'Email Security',
         'feature': 'DKIM',
         'status': 'Enabled' if dkim['exists'] else 'Disabled',
-        'details': f"Record: {dkim['record']}" if dkim['exists'] else 'No DKIM record found'
+        'details': dkim['record'] if dkim['exists'] else 'No DKIM record found',
+        'issues': ''
     })
     
     # Email security - DMARC
@@ -762,7 +773,8 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
         'category': 'Email Security',
         'feature': 'DMARC',
         'status': 'Enabled' if dmarc['exists'] else 'Disabled',
-        'details': f"Record: {dmarc['record']}; Issues: {'; '.join(dmarc['issues'])}" if dmarc['exists'] else 'No DMARC record found'
+        'details': dmarc['record'] if dmarc['exists'] else 'No DMARC record found',
+        'issues': '; '.join(dmarc['issues']) if dmarc['issues'] else ''
     })
     
     # Email providers
@@ -771,15 +783,22 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
             'category': 'Email Security',
             'feature': 'Email Provider',
             'status': 'Detected',
-            'details': provider
+            'details': provider,
+            'issues': ''
         })
     
     # Write CSV file
     if csv_data:
         with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['category', 'feature', 'status', 'details'])
+            writer = csv.DictWriter(f, fieldnames=['category', 'feature', 'status', 'details', 'issues'])
             writer.writeheader()
             writer.writerows(csv_data)
+            
+        # Print issues to stdout
+        print(f"\n{Colors.BOLD}DNS Security Issues for {domain}:{Colors.RESET}")
+        for row in csv_data:
+            if row['issues']:
+                print(f"{Colors.YELLOW}[!] {row['category']} - {row['feature']}: {row['issues']}{Colors.RESET}")
 
 def check_domain_takeover(domain, services, logger, verbose_level, pretty_output=True):
     """Check for domain takeover opportunities after service discovery."""
@@ -869,12 +888,12 @@ def main():
             print(f"{Colors.RED}    - {domain}{Colors.RESET}")
         parser.error("Please provide valid domains")
 
-    # Setup output directory
-    output_dir = args.output or os.path.join(get_script_dir(), 'results')
-    os.makedirs(output_dir, exist_ok=True)
+    # Setup output directory - use plainsight_results in current directory if not specified
+    base_output_dir = args.output or os.path.join(os.getcwd(), 'plainsight_results')
+    os.makedirs(base_output_dir, exist_ok=True)
 
     # Setup logging
-    logger = setup_logging(output_dir, args.verbose)
+    logger = setup_logging(base_output_dir, args.verbose)
 
     # Print banner
     if not args.no_banner:
@@ -897,7 +916,9 @@ def main():
 
         for domain in domains:
             logger.info(f"Processing domain: {domain}")
-            domain_dir = os.path.join(output_dir, domain)
+            # Replace dots with underscores in domain name for directory
+            safe_domain = domain.replace('.', '_')
+            domain_dir = os.path.join(base_output_dir, safe_domain)
             os.makedirs(domain_dir, exist_ok=True)
 
             # Get company logo first
@@ -967,7 +988,7 @@ def main():
                 if check_for_enter():
                     if not args.no_pretty:
                         console.print(f"\n[yellow][!] Scan cancelled by user[/yellow]")
-                    save_current_results(all_results, output_dir, not args.no_pretty)
+                    save_current_results(all_results, base_output_dir, not args.no_pretty)
                     if progress:
                         progress.stop()
                     status_queue.put("DONE")
@@ -1008,12 +1029,12 @@ def main():
             status_thread.join()
 
         # Save final results
-        save_current_results(all_results, output_dir, not args.no_pretty)
+        save_current_results(all_results, base_output_dir, not args.no_pretty)
 
     except KeyboardInterrupt:
         if not args.no_pretty:
             print(f"\n{Colors.YELLOW}[!] Scan interrupted by user{Colors.RESET}")
-        save_current_results(all_results, output_dir, not args.no_pretty)
+        save_current_results(all_results, base_output_dir, not args.no_pretty)
     finally:
         driver.quit()
 

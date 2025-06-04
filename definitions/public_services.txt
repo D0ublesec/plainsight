@@ -1,6 +1,5 @@
 # Authentication & SSO
 okta.com
-onelogin.com
 pingidentity.com
 auth0.com
 duo.com
@@ -11,7 +10,6 @@ sailpoint.com
 forgerock.com
 keycloak.org
 fusionauth.com
-
 
 # Cloud Storage & File Sharing
 box.com
@@ -37,7 +35,6 @@ confluence.net
 trello.com
 asana.com
 monday.com
-clickup.com
 basecamp.com
 notion.so
 smartsheet.com
@@ -45,9 +42,8 @@ wrike.com
 teamgantt.com
 liquidplanner.com
 projectmanager.com
-teamwork.com
 lightning.force.com
-
+my.salesforce.com
 
 # Communication & Video Conferencing
 zoom.us
@@ -62,7 +58,6 @@ outlook.com
 # CRM & Sales
 hubspot.com
 zoho.com
-pipedrive.com
 freshsales.com
 close.com
 insightly.com
@@ -70,7 +65,6 @@ nethunt.com
 agilecrm.com
 bitrix24.com
 copper.com
-nimble.com
 sugar.com
 vtiger.com
 
