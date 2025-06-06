@@ -493,6 +493,9 @@ def save_current_results(all_results, output_dir, pretty_output=True):
         domain = result['domain']
         domain_dir = os.path.join(output_dir, domain)
         
+        # Create domain directory if it doesn't exist
+        os.makedirs(domain_dir, exist_ok=True)
+        
         # Save domain results as JSON
         summary_path = os.path.join(domain_dir, 'summary.json')
         with open(summary_path, 'w') as f:
