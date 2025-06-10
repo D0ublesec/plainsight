@@ -345,33 +345,59 @@ def check_dns_records(domain, logger, verbose_level, pretty_output=True):
     
     return dns_results
 
-def check_dns_txt(domain, dns_strings, logger, verbose_level, pretty_output=True):
-    """Check DNS TXT records for known service indicators."""
+def check_dns_txt(domain, definitions, logger, verbose_level, pretty_output=True):
+    """Check DNS TXT records for service indicators."""
+    if verbose_level >= 1 and pretty_output:
+        print(f"{Colors.ORANGE}[*] Checking DNS TXT records for service indicators{Colors.RESET}")
+    
     try:
+        # Get all TXT records
+        txt_records = dns.resolver.resolve(domain, 'TXT')
+        
         if verbose_level >= 1 and pretty_output:
-            print(f"{Colors.ORANGE}[*] Checking DNS TXT records for service indicators{Colors.RESET}")
-        
-        answers = dns.resolver.resolve(domain, 'TXT')
-        txt_records = [str(txt.to_text()) for txt in answers]
-        found_services = []
-        
-        for record in txt_records:
-            if verbose_level >= 2 and pretty_output:
+            print(f"{Colors.CYAN}[~] Found {len(txt_records)} TXT records{Colors.RESET}")
+            for record in txt_records:
                 print(f"{Colors.CYAN}[~] TXT Record: {record}{Colors.RESET}")
-            
-            for service in dns_strings:
-                if service.lower() in record.lower():
-                    found_services.append({
-                        'service': service,
-                        'record': record
-                    })
-                    logger.info(f"Found service indicator in DNS TXT: {service} - {record}")
-                    if verbose_level >= 1 and pretty_output:
-                        print(f"{Colors.GREEN}[+] Found service indicator: {service} in TXT record{Colors.RESET}")
         
-        return found_services
+        # Check each record for service indicators
+        found_services = []
+        for record in txt_records:
+            record_str = str(record)
+            # Handle both list and dictionary formats
+            if isinstance(definitions['dns_strings'], dict):
+                for service, indicator in definitions['dns_strings'].items():
+                    if indicator.lower() in record_str.lower():
+                        found_services.append(service)
+                        if verbose_level >= 1 and pretty_output:
+                            print(f"{Colors.GREEN}[+] Found {service} indicator in TXT record{Colors.RESET}")
+            else:  # Handle list format
+                for indicator in definitions['dns_strings']:
+                    if indicator.lower() in record_str.lower():
+                        found_services.append(indicator)
+                        if verbose_level >= 1 and pretty_output:
+                            print(f"{Colors.GREEN}[+] Found {indicator} in TXT record{Colors.RESET}")
+        
+        if found_services:
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.GREEN}[+] Found service indicators for: {', '.join(found_services)}{Colors.RESET}")
+            return found_services
+        else:
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.YELLOW}[!] No service indicators found in TXT records{Colors.RESET}")
+            return []
+            
+    except dns.resolver.NoAnswer:
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.YELLOW}[!] No TXT records found for {domain}{Colors.RESET}")
+        return []
+    except dns.resolver.NXDOMAIN:
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.RED}[-] Domain {domain} does not exist{Colors.RESET}")
+        return []
     except Exception as e:
-        logger.debug(f"Error checking DNS TXT records for {domain}: {str(e)}")
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.RED}[-] Error checking TXT records: {str(e)}{Colors.RESET}")
+        logger.error(f"Error checking TXT records: {str(e)}")
         return []
 
 def check_for_enter():
@@ -425,11 +451,103 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
             print(f"{Colors.CYAN}[~] Response Headers: {dict(response.headers)}{Colors.RESET}")
             print(f"{Colors.CYAN}[~] Response Status: {response.status_code}{Colors.RESET}")
         
+        # Check for specific domain redirects and content
         if response.status_code in [200, 301, 302]:
+            redirect_url = response.url if response.history else None
+            
+            # Auth0 check
+            if service == 'auth0.com' and redirect_url and 'auth0.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Auth0 redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # Box check
+            if service == 'box.com' and redirect_url and 'account.box.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Box account redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # SharePoint redirect check - mark as found when redirected to Microsoft login
+            if service == 'sharepoint' and 'login.microsoftonline.com' in redirect_url:
+                if pretty_output:
+                    print(f"{Colors.GREEN}[+] Found {service} service{Colors.RESET}")
+                return {
+                    'url': url,
+                    'status': response.status_code,
+                    'headers': dict(response.headers),
+                    'screenshot_path': take_screenshot(driver, url, output_dir, f"screenshot_{domain}_{service}") if redirect_url else None,
+                    'redirect_url': redirect_url
+                }
+            
+            # Nethunt check
+            if service == 'nethunt.com' and redirect_url and 'nethunt.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Nethunt redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # AgileCRM check
+            if service == 'agilecrm.com' and redirect_url and 'my.agilecrm.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] AgileCRM redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # Vtiger check
+            if service == 'vtiger.com' and redirect_url and 'www.vtiger.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Vtiger redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # Workable check
+            if service == 'workable.com' and redirect_url and 'apply.workable.com/oops' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Workable oops page detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # Zendesk check
+            if service == 'zendesk.com':
+                if redirect_url and 'www.zendesk.com' in redirect_url:
+                    if verbose_level >= 1 and pretty_output:
+                        print(f"{Colors.YELLOW}[!] Zendesk redirect detected, marking as not found{Colors.RESET}")
+                    return None
+                elif redirect_url and 'www.zendesk.co.uk' in redirect_url:
+                    if 'Oops! This help centre no longer exists' in response.text:
+                        if verbose_level >= 1 and pretty_output:
+                            print(f"{Colors.YELLOW}[!] Zendesk help centre not found{Colors.RESET}")
+                        return None
+            
+            # Zammad check
+            if service == 'zammad.com' and 'Requested system was not found.' in response.text:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Zammad system not found{Colors.RESET}")
+                return None
+            
+            # TalentLMS check
+            if service == 'talentlms.com' and redirect_url and 'www.talentlms.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] TalentLMS redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # LearnWorlds check
+            if service == 'learnworlds.com' and redirect_url and 'www.learnworlds.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] LearnWorlds redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
+            # Monday.com check
+            if service == 'monday.com' and redirect_url and 'auth.monday.com/slug_not_found' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] Monday.com slug not found, marking as not found{Colors.RESET}")
+                return None
+            
+            # BambooHR check
+            if service == 'bamboohr.com' and redirect_url and 'www.bamboohr.com' in redirect_url:
+                if verbose_level >= 1 and pretty_output:
+                    print(f"{Colors.YELLOW}[!] BambooHR redirect detected, marking as not found{Colors.RESET}")
+                return None
+            
             logger.info(f"Found service: {url} (Status: {response.status_code})")
             
             # Check for redirects
-            redirect_url = None
             if response.history:
                 redirect_url = response.url
                 if pretty_output:
@@ -491,7 +609,8 @@ def save_current_results(all_results, output_dir, pretty_output=True):
     # Save individual domain results
     for result in all_results:
         domain = result['domain']
-        domain_dir = os.path.join(output_dir, domain)
+        safe_domain = domain.replace('.', '_')
+        domain_dir = os.path.join(output_dir, safe_domain)
         
         # Create domain directory if it doesn't exist
         os.makedirs(domain_dir, exist_ok=True)
@@ -801,6 +920,517 @@ def save_dns_security_to_csv(security_results, output_dir, domain):
             if row['issues']:
                 print(f"{Colors.YELLOW}[!] {row['category']} - {row['feature']}: {row['issues']}{Colors.RESET}")
 
+def generate_html_report(results, output_dir, pretty_output=True):
+    """Generate an HTML report similar to Aquatone's output."""
+    def get_ordinal(n):
+        if 10 <= n % 100 <= 20:
+            suffix = 'th'
+        else:
+            suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+        return suffix
+    
+    def format_date(date_str):
+        try:
+            # Parse the date string
+            dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+            
+            # Get the day directly from the datetime object
+            day = dt.day
+            
+            # Format the date with proper ordinal and local timezone
+            formatted_date = f"{day}{get_ordinal(day)} {dt.strftime('%B %Y at %H:%M:%S')} {dt.astimezone().strftime('%Z')}"
+            
+            return formatted_date
+        except Exception as e:
+            return date_str
+
+    if pretty_output:
+        print(f"{Colors.YELLOW}[!] Generating HTML report...{Colors.RESET}")
+
+    # Create domain-specific directory for the report
+    domain = results[0]['domain']
+    safe_domain = domain.replace('.', '_')
+    report_dir = os.path.join(output_dir, safe_domain)
+    os.makedirs(report_dir, exist_ok=True)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plainsight Scan Results - {domain}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        .header {{
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .domain-section {{
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .domain-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }}
+        .services-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }}
+        .services-grid.cols-1 {{
+            grid-template-columns: 1fr;
+        }}
+        .services-grid.cols-2 {{
+            grid-template-columns: repeat(2, 1fr);
+        }}
+        .services-grid.cols-3 {{
+            grid-template-columns: repeat(3, 1fr);
+        }}
+        .service-card {{
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }}
+        .service-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }}
+        .service-card h3 {{
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }}
+        .service-card p {{
+            margin: 5px 0;
+            color: #666;
+        }}
+        .service-card .status {{
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+        }}
+        .status-found {{
+            background: #d4edda;
+            color: #155724;
+        }}
+        .status-not-found {{
+            background: #f8d7da;
+            color: #721c24;
+        }}
+        .screenshot {{
+            width: 100%;
+            height: auto;
+            max-height: 200px;
+            object-fit: contain;
+            border-radius: 4px;
+            margin-top: 10px;
+        }}
+        .modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+        }}
+        .modal-content {{
+            position: relative;
+            background: #fff;
+            margin: 2% auto;
+            padding: 20px;
+            width: 90%;
+            max-width: 1200px;
+            border-radius: 8px;
+            max-height: 96vh;
+            overflow-y: auto;
+        }}
+        .close-button {{
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            z-index: 1001;
+        }}
+        .tabs {{
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+            position: sticky;
+            top: 0;
+            background: #fff;
+            padding: 10px 0;
+            z-index: 1;
+        }}
+        .tab {{
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-right: 5px;
+            border-radius: 4px 4px 0 0;
+        }}
+        .tab.active {{
+            background: #fff;
+            border-color: #ddd;
+            border-bottom-color: #fff;
+            margin-bottom: -1px;
+        }}
+        .tab-content {{
+            display: none;
+            padding: 20px;
+            background: #fff;
+            border-radius: 0 0 4px 4px;
+        }}
+        .tab-content.active {{
+            display: block;
+        }}
+        .request-details, .response-details {{
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }}
+        .screenshot-modal {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .timestamp {{
+            color: #666;
+            font-size: 0.9em;
+        }}
+        .headers-section {{
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }}
+        .headers-section h4 {{
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }}
+        .display-controls {{
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 100;
+        }}
+        .display-controls button {{
+            padding: 5px 10px;
+            margin: 0 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+        }}
+        .display-controls button:hover {{
+            background: #f8f9fa;
+        }}
+        .display-controls button.active {{
+            background: #007bff;
+            color: #fff;
+            border-color: #007bff;
+        }}
+        .redirect-label {{
+            background: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            margin-left: 8px;
+        }}
+        .redirect-section {{
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+        }}
+        .redirect-section h4 {{
+            margin: 0 0 10px 0;
+            color: #856404;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Plainsight Scan Results - {domain}</h1>
+            <p>Scan Date: {format_date(results[0]['scan_date'])}</p>
+        </div>
+"""
+
+    for result in results:
+        domain = result['domain']
+        services = result['services']
+        
+        html_content += f"""
+        <div class="domain-section">
+            <div class="domain-header">
+                <h2>{domain}</h2>
+                <span class="timestamp">Scanned: {format_date(result['scan_date'])}</span>
+            </div>
+            <div class="services-grid cols-3">
+"""
+        
+        # Convert services list to dictionary if it's not already
+        if isinstance(services, list):
+            services_dict = {service['url'].split('.')[-2] + '.' + service['url'].split('.')[-1]: service for service in services if service}
+        else:
+            services_dict = services
+        
+        for service_name, service_data in services_dict.items():
+            if service_data:
+                status_class = "status-found"
+                status_text = "Found"
+                if service_data.get('redirect_url'):
+                    status_text += " <span class='redirect-label'>Redirect</span>"
+            else:
+                status_class = "status-not-found"
+                status_text = "Not Found"
+            
+            # Convert service_data to JSON string for data attribute, properly escaping quotes
+            service_data_json = json.dumps(service_data).replace('"', '&quot;') if service_data else 'null'
+            
+            html_content += f"""
+                <div class="service-card" data-service="{service_data_json}">
+                    <h3>{service_name}</h3>
+                    <span class="status {status_class}">{status_text}</span>
+"""
+            
+            if service_data:
+                html_content += f"""
+                    <p>URL: {service_data['url']}</p>
+                    <p>Status: {service_data['status']}</p>
+"""
+                if service_data.get('screenshot_path'):
+                    screenshot_path = os.path.relpath(service_data['screenshot_path'], report_dir)
+                    html_content += f"""
+                    <img src="{screenshot_path}" alt="Screenshot" class="screenshot">
+"""
+            
+            html_content += """
+                </div>
+"""
+        
+        html_content += """
+            </div>
+        </div>
+"""
+    
+    html_content += """
+    </div>
+    
+    <div class="display-controls">
+        <button onclick="changeLayout(1)" class="active">1 Column</button>
+        <button onclick="changeLayout(2)">2 Columns</button>
+        <button onclick="changeLayout(3)">3 Columns</button>
+    </div>
+    
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('screenshot')">Screenshot</div>
+                <div class="tab" onclick="switchTab('request')">Request</div>
+                <div class="tab" onclick="switchTab('response')">Response</div>
+                <div class="tab" onclick="switchTab('redirectRequest')">Redirect Request</div>
+                <div class="tab" onclick="switchTab('redirectResponse')">Redirect Response</div>
+            </div>
+            <div id="screenshotTab" class="tab-content active">
+                <img id="modalScreenshot" class="screenshot-modal" src="" alt="Screenshot">
+            </div>
+            <div id="requestTab" class="tab-content">
+                <div id="requestDetails" class="request-details"></div>
+            </div>
+            <div id="responseTab" class="tab-content">
+                <div id="responseDetails" class="response-details"></div>
+            </div>
+            <div id="redirectRequestTab" class="tab-content">
+                <div id="redirectRequestDetails" class="request-details"></div>
+            </div>
+            <div id="redirectResponseTab" class="tab-content">
+                <div id="redirectResponseDetails" class="response-details"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add click event listeners to all service cards
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.service-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    try {
+                        const serviceData = JSON.parse(this.getAttribute('data-service'));
+                        const serviceName = this.querySelector('h3').textContent;
+                        const screenshot = this.querySelector('.screenshot');
+                        
+                        // Show modal
+                        const modal = document.getElementById('detailsModal');
+                        modal.style.display = 'block';
+                        
+                        // Set screenshot
+                        if (screenshot) {
+                            document.getElementById('modalScreenshot').src = screenshot.src;
+                        }
+                        
+                        // Set request details
+                        if (serviceData) {
+                            // Original request details
+                            const requestDetails = `URL: ${serviceData.url}
+Method: GET
+Status: ${serviceData.status}
+
+Request Headers:
+${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                            
+                            document.getElementById('requestDetails').textContent = requestDetails;
+                            
+                            // Original response details
+                            const responseDetails = `Status: ${serviceData.status}
+URL: ${serviceData.url}
+
+Response Headers:
+${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                            
+                            document.getElementById('responseDetails').textContent = responseDetails;
+                            
+                            // Redirect information if present
+                            if (serviceData.redirect_url) {
+                                const redirectRequestDetails = `Original URL: ${serviceData.url}
+Redirect URL: ${serviceData.redirect_url}
+Status: ${serviceData.status}
+
+Request Headers:
+${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                                
+                                const redirectResponseDetails = `Status: ${serviceData.status}
+Redirect URL: ${serviceData.redirect_url}
+
+Response Headers:
+${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                                
+                                document.getElementById('redirectRequestDetails').textContent = redirectRequestDetails;
+                                document.getElementById('redirectResponseDetails').textContent = redirectResponseDetails;
+                                
+                                // Show redirect tabs
+                                document.querySelectorAll('.tab').forEach(tab => {
+                                    if (tab.textContent.includes('Redirect')) {
+                                        tab.style.display = 'block';
+                                    }
+                                });
+                            } else {
+                                // Hide redirect tabs if no redirect
+                                document.querySelectorAll('.tab').forEach(tab => {
+                                    if (tab.textContent.includes('Redirect')) {
+                                        tab.style.display = 'none';
+                                    }
+                                });
+                            }
+                        } else {
+                            document.getElementById('requestDetails').textContent = 'No request details available';
+                            document.getElementById('responseDetails').textContent = 'No response details available';
+                            document.getElementById('redirectRequestDetails').textContent = 'No redirect request details available';
+                            document.getElementById('redirectResponseDetails').textContent = 'No redirect response details available';
+                        }
+                    } catch (error) {
+                        console.error('Error parsing service data:', error);
+                    }
+                });
+            });
+        });
+        
+        function closeModal() {
+            document.getElementById('detailsModal').style.display = 'none';
+        }
+        
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+        }
+        
+        function changeLayout(columns) {
+            const grid = document.querySelector('.services-grid');
+            grid.className = 'services-grid cols-' + columns;
+            
+            // Update active button
+            document.querySelectorAll('.display-controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('detailsModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+    # Update the report filename to include the target domain
+    report_path = os.path.join(report_dir, f'report_{safe_domain}.html')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    if pretty_output:
+        print(f"{Colors.GREEN}[+] Generated HTML report: {report_path}{Colors.RESET}")
+    
+    return report_path
+
 def check_domain_takeover(domain, services, logger, verbose_level, pretty_output=True):
     """Check for domain takeover opportunities after service discovery."""
     takeover_risks = []
@@ -865,10 +1495,8 @@ def main():
     parser.add_argument('-o', '--output', type=str, help='Output directory for results.')
     parser.add_argument('--no-banner', action='store_true', help='Disable the ASCII banner.')
     parser.add_argument('--no-pretty', action='store_true', help='Disable pretty output formatting.')
-    parser.add_argument('--dns-security', action='store_true', help='Enable enhanced DNS security checks.')
-
     args = parser.parse_args()
-
+    
     if not args.domains and not args.file:
         parser.error("Please provide either domains or a file")
 
@@ -892,10 +1520,10 @@ def main():
     # Setup output directory - use plainsight_results in current directory if not specified
     base_output_dir = args.output or os.path.join(os.getcwd(), 'plainsight_results')
     os.makedirs(base_output_dir, exist_ok=True)
-
+    
     # Setup logging
     logger = setup_logging(base_output_dir, args.verbose)
-
+    
     # Print banner
     if not args.no_banner:
         print_banner()
@@ -905,13 +1533,13 @@ def main():
     if not definitions['services']:
         logger.error("No services found in definitions/public_services.txt")
         return
-
+    
     # Setup WebDriver
     driver = setup_webdriver()
 
     # Store all results for combined output
     all_results = []
-
+    
     try:
         print(f"\n{Colors.YELLOW}[!] Press Enter at any time to cancel the scan and save current results{Colors.RESET}\n")
 
@@ -962,12 +1590,11 @@ def main():
             status_queue.put(f"Checking DNS records for {domain}")
             results['dns_records'] = check_dns_records(domain, logger, args.verbose, not args.no_pretty)
             
-            # Enhanced DNS security checks
-            if args.dns_security:
-                status_queue.put(f"Performing enhanced DNS security checks for {domain}")
-                results['dns_security'] = check_dns_security(domain, logger, args.verbose, not args.no_pretty)
-                # Save DNS security results to CSV
-                save_dns_security_to_csv(results['dns_security'], domain_dir, domain)
+            # Enhanced DNS security checks - now always enabled
+            status_queue.put(f"Performing enhanced DNS security checks for {domain}")
+            results['dns_security'] = check_dns_security(domain, logger, args.verbose, not args.no_pretty)
+            # Save DNS security results to CSV
+            save_dns_security_to_csv(results['dns_security'], domain_dir, domain)
             
             # Print DNS results
             if progress:
@@ -979,7 +1606,7 @@ def main():
 
             # Check DNS TXT records for service indicators
             status_queue.put(f"Checking DNS TXT records for service indicators")
-            dns_findings = check_dns_txt(domain, definitions['dns_strings'], logger, args.verbose, not args.no_pretty)
+            dns_findings = check_dns_txt(domain, definitions, logger, args.verbose, not args.no_pretty)
             results['dns_txt_findings'] = dns_findings
 
             # Check services
@@ -1005,9 +1632,8 @@ def main():
                     progress.update(task, advance=1)
 
             # Check for domain takeover opportunities after finding all services
-            if args.dns_security:
-                status_queue.put(f"Checking for domain takeover opportunities")
-                results['takeover_risks'] = check_domain_takeover(domain, results['services'], logger, args.verbose, not args.no_pretty)
+            status_queue.put(f"Checking for domain takeover opportunities")
+            results['takeover_risks'] = check_domain_takeover(domain, results['services'], logger, args.verbose, not args.no_pretty)
 
             # Stop progress display if it exists
             if progress:
@@ -1031,11 +1657,16 @@ def main():
 
         # Save final results
         save_current_results(all_results, base_output_dir, not args.no_pretty)
-
+        
+        # Generate HTML report
+        generate_html_report(all_results, base_output_dir, not args.no_pretty)
     except KeyboardInterrupt:
         if not args.no_pretty:
             print(f"\n{Colors.YELLOW}[!] Scan interrupted by user{Colors.RESET}")
         save_current_results(all_results, base_output_dir, not args.no_pretty)
+        # Generate HTML report with current results
+        if all_results:
+            generate_html_report(all_results, base_output_dir, not args.no_pretty)
     finally:
         driver.quit()
 
