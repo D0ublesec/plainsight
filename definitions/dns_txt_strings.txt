@@ -23,6 +23,11 @@ shopify-verification
 github-verification
 gitlab-verification
 docusign
+mongodb
+jamf
+cisco
+zoom
+
 
 # Security & Authentication
 globalsign
@@ -143,3 +148,4 @@ globalsign
 adobe
 amazonses
 yandex
+slack
