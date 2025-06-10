@@ -35,7 +35,6 @@ confluence.net
 trello.com
 asana.com
 monday.com
-clickup.com
 basecamp.com
 notion.so
 smartsheet.com
@@ -66,7 +65,6 @@ nethunt.com
 agilecrm.com
 bitrix24.com
 copper.com
-nimble.com
 sugar.com
 vtiger.com
 
@@ -81,7 +79,6 @@ rippling.com
 greenhouse.io
 lever.co
 workable.com
-personio.com
 factorialhr.com
 bob.com
 hibob.com
@@ -118,7 +115,6 @@ helpscout.com
 front.com
 kayako.com
 livechat.com
-drift.com
 crisp.chat
 tawk.to
 servicenow.com
@@ -130,7 +126,6 @@ liveagent.com
 freshservice.com
 zoho.com
 jira.com
-monday.com
 asana.com
 trello.com
 confluence.net
@@ -179,7 +174,6 @@ adyen.com
 klarna.com
 
 # Learning & Training
-udemy.com
 coursera.com
 pluralsight.com
 linkedin.com
