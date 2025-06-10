@@ -104,7 +104,7 @@ def save_results_to_csv(results, output_dir, domain):
     """Save results to CSV format."""
     # Replace dots with underscores in domain name for filename
     safe_domain = domain.replace('.', '_')
-    csv_path = os.path.join(output_dir, f"services.csv")
+    csv_path = os.path.join(output_dir, f"services_{safe_domain}.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -145,7 +145,8 @@ def print_dns_results(dns_results, pretty_output=True):
 
 def save_dns_results(dns_results, output_dir, domain):
     """Save DNS results to a text file."""
-    dns_path = os.path.join(output_dir, f"dns_records.txt")
+    safe_domain = domain.replace('.', '_')
+    dns_path = os.path.join(output_dir, f"dns_records_{safe_domain}.txt")
     with open(dns_path, 'w') as f:
         f.write(f"DNS Records for {domain}\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -616,7 +617,7 @@ def save_current_results(all_results, output_dir, pretty_output=True):
         os.makedirs(domain_dir, exist_ok=True)
         
         # Save domain results as JSON
-        summary_path = os.path.join(domain_dir, 'summary.json')
+        summary_path = os.path.join(domain_dir, f'summary_{safe_domain}.json')
         with open(summary_path, 'w') as f:
             json.dump(result, f, indent=2)
         
@@ -813,7 +814,8 @@ def get_company_logo(domain, output_dir, pretty_output=True):
         
         if response.status_code == 200:
             # Save logo to file
-            logo_path = os.path.join(output_dir, 'company_logo.png')
+            safe_domain = domain.replace('.', '_')
+            logo_path = os.path.join(output_dir, f'company_logo_{safe_domain}.png')
             with open(logo_path, 'wb') as f:
                 f.write(response.content)
             
@@ -833,7 +835,8 @@ def get_company_logo(domain, output_dir, pretty_output=True):
 
 def save_dns_security_to_csv(security_results, output_dir, domain):
     """Save DNS security results to CSV format."""
-    csv_path = os.path.join(output_dir, f"dns_security.csv")
+    safe_domain = domain.replace('.', '_')
+    csv_path = os.path.join(output_dir, f"dns_security_{safe_domain}.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -1644,7 +1647,7 @@ def main():
                 console.print()  # Add newline after progress bar
 
             # Save individual domain results
-            summary_path = os.path.join(domain_dir, 'summary.json')
+            summary_path = os.path.join(domain_dir, f'summary_{safe_domain}.json')
             with open(summary_path, 'w') as f:
                 json.dump(results, f, indent=2)
 
