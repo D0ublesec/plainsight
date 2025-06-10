@@ -1215,7 +1215,7 @@ def generate_html_report(results, output_dir, pretty_output=True):
         
         # Convert services list to dictionary if it's not already
         if isinstance(services, list):
-            services_dict = {service['url'].split('.')[-2] + '.' + service['url'].split('.')[-1]: service for service in services if service}
+            services_dict = {service['url'].split('://')[-1].split('/')[0]: service for service in services if service}
         else:
             services_dict = services
         
