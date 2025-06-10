@@ -1488,6 +1488,7 @@ def check_domain_takeover(domain, services, logger, verbose_level, pretty_output
     return takeover_risks
 
 def main():
+    """Main function."""
     parser = argparse.ArgumentParser(description="OSINT tool for detecting 3rd party services used by companies.")
     parser.add_argument('domains', nargs='*', help='List of domains to process.')
     parser.add_argument('-f', '--file', type=str, help='File containing domains (one per line).')
@@ -1495,6 +1496,7 @@ def main():
     parser.add_argument('-o', '--output', type=str, help='Output directory for results.')
     parser.add_argument('--no-banner', action='store_true', help='Disable the ASCII banner.')
     parser.add_argument('--no-pretty', action='store_true', help='Disable pretty output formatting.')
+    parser.add_argument('-t', '--threads', type=int, default=5, help='Number of threads for scanning (default: 5)')
     args = parser.parse_args()
     
     if not args.domains and not args.file:
@@ -1509,13 +1511,8 @@ def main():
     
     for domain in domains:
         if not validate_domain(domain):
-            invalid_domains.append(domain)
-    
-    if invalid_domains:
-        print(f"{Colors.RED}[-] Invalid domains found:{Colors.RESET}")
-        for domain in invalid_domains:
-            print(f"{Colors.RED}    - {domain}{Colors.RESET}")
-        parser.error("Please provide valid domains")
+            print(f"{Colors.RED}[-] Invalid domain: {domain}{Colors.RESET}")
+            continue
 
     # Setup output directory - use plainsight_results in current directory if not specified
     base_output_dir = args.output or os.path.join(os.getcwd(), 'plainsight_results')
@@ -1655,18 +1652,19 @@ def main():
             status_queue.put("DONE")
             status_thread.join()
 
+            # Save current results after each domain
+            save_current_results(all_results, base_output_dir, not args.no_pretty)
+            
+            # Generate HTML report for the current domain
+            if not args.no_pretty:
+                generate_html_report([result for result in all_results if result['domain'] == domain], base_output_dir, not args.no_pretty)
+
         # Save final results
         save_current_results(all_results, base_output_dir, not args.no_pretty)
-        
-        # Generate HTML report
-        generate_html_report(all_results, base_output_dir, not args.no_pretty)
     except KeyboardInterrupt:
         if not args.no_pretty:
             print(f"\n{Colors.YELLOW}[!] Scan interrupted by user{Colors.RESET}")
-        save_current_results(all_results, base_output_dir, not args.no_pretty)
-        # Generate HTML report with current results
-        if all_results:
-            generate_html_report(all_results, base_output_dir, not args.no_pretty)
+        sys.exit(1)
     finally:
         driver.quit()
 
