@@ -1541,7 +1541,13 @@ def main():
         print(f"\n{Colors.YELLOW}[!] Press Enter at any time to cancel the scan and save current results{Colors.RESET}\n")
 
         for domain in domains:
-            logger.info(f"Processing domain: {domain}")
+            if not args.no_pretty:
+                console.print(f"\n[bold cyan]╔════════════════════════════════════════════════════════════════════════════╗[/bold cyan]")
+                console.print(f"[bold cyan]║[/bold cyan] [bold yellow]Scanning Domain:[/bold yellow] {domain:<50} [bold cyan]║[/bold cyan]")
+                console.print(f"[bold cyan]╚════════════════════════════════════════════════════════════════════════════╝[/bold cyan]\n")
+            else:
+                print(f"\n[*] Scanning domain: {domain}")
+            
             # Replace dots with underscores in domain name for directory
             safe_domain = domain.replace('.', '_')
             domain_dir = os.path.join(base_output_dir, safe_domain)
