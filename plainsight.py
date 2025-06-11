@@ -1465,6 +1465,106 @@ def generate_html_report(results, output_dir, pretty_output=True):
         .tab-content.active {{
             display: block;
         }}
+
+        .header-actions {{
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }}
+
+        .dns-info-button {{
+            background: var(--button-bg);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.3s ease;
+        }}
+
+        .dns-info-button:hover {{
+            background: var(--button-hover);
+        }}
+
+        .dns-info-button svg {{
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }}
+
+        .dns-modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+        }}
+
+        .dns-modal-content {{
+            background: var(--modal-bg);
+            margin: 2% auto;
+            padding: 25px;
+            width: 90%;
+            max-width: 1200px;
+            border-radius: 12px;
+            max-height: 96vh;
+            overflow-y: auto;
+            color: var(--text-color);
+            border: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }}
+
+        .dns-section {{
+            margin-bottom: 30px;
+            background: var(--header-bg);
+            padding: 20px;
+            border-radius: 8px;
+        }}
+
+        .dns-section h3 {{
+            margin: 0 0 15px 0;
+            color: var(--text-color);
+            font-size: 1.2em;
+        }}
+
+        .dns-record {{
+            background: var(--bg-color);
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }}
+
+        .security-status {{
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin: 2px 0;
+        }}
+
+        .status-enabled {{
+            background: #d4edda;
+            color: #155724;
+        }}
+
+        .status-disabled {{
+            background: #f8d7da;
+            color: #721c24;
+        }}
+
+        .status-warning {{
+            background: #fff3cd;
+            color: #856404;
+        }}
     </style>
 </head>
 <body>
@@ -1480,6 +1580,13 @@ def generate_html_report(results, output_dir, pretty_output=True):
                 <h1>👀 Plainsight Scan Results - {domain} 👀</h1>
                 <p>Scan Date: {format_date(results[0]['scan_date'])[0]}</p>
             </div>
+            <div class="header-actions">
+                <button class="dns-info-button" onclick="showDnsInfo()">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                    </svg>
+                    DNS Info
+                </button>
 """
 
     # Add company logo if available
@@ -1487,15 +1594,144 @@ def generate_html_report(results, output_dir, pretty_output=True):
     logo_path = os.path.join(report_dir, logo_filename)
     if os.path.exists(logo_path):
         html_template += f"""
-            <img src="{logo_filename}" alt="Company Logo" class="company-logo" title="Logo sourced from Clearbit - may be outdated">
+                <img src="{logo_filename}" alt="Company Logo" class="company-logo" title="Logo sourced from Clearbit - may be outdated">
 """
     else:
         html_template += """
-            <div class="company-logo" title="No company logo available"></div>
+                <div class="company-logo" title="No company logo available"></div>
 """
 
     html_template += """
+            </div>
         </div>
+"""
+
+    # Add DNS Info Modal
+    html_template += """
+        <div id="dnsModal" class="dns-modal">
+            <div class="dns-modal-content">
+                <span class="close-button" onclick="closeDnsModal()">&times;</span>
+                <h2>DNS Information</h2>
+"""
+
+    # Add DNS Records Section
+    dns_records = results[0]['dns_records']
+    html_template += """
+                <div class="dns-section">
+                    <h3>DNS Records</h3>
+"""
+    
+    for record_type, records in dns_records.items():
+        if records:
+            html_template += f"""
+                    <h4>{record_type} Records</h4>
+"""
+            for record in records:
+                html_template += f"""
+                    <div class="dns-record">{record}</div>
+"""
+
+    # Add DNS Security Section
+    dns_security = results[0]['dns_security']
+    html_template += """
+                <div class="dns-section">
+                    <h3>DNS Security</h3>
+"""
+    
+    # DNSSEC Status
+    dnssec_status = "Enabled" if dns_security['dnssec'] else "Disabled"
+    status_class = "status-enabled" if dns_security['dnssec'] else "status-disabled"
+    html_template += f"""
+                    <div class="security-status {status_class}">DNSSEC: {dnssec_status}</div>
+"""
+
+    # Email Security
+    email_security = dns_security['email_security']
+    html_template += """
+                    <h4>Email Security</h4>
+"""
+    
+    # SPF
+    spf = email_security['spf']
+    spf_status = "Enabled" if spf['exists'] else "Disabled"
+    spf_class = "status-enabled" if spf['exists'] else "status-disabled"
+    html_template += f"""
+                    <div class="security-status {spf_class}">SPF: {spf_status}</div>
+"""
+    if spf['issues']:
+        for issue in spf['issues']:
+            html_template += f"""
+                    <div class="security-status status-warning">SPF Issue: {issue}</div>
+"""
+
+    # DKIM
+    dkim = email_security['dkim']
+    dkim_status = "Enabled" if dkim['exists'] else "Disabled"
+    dkim_class = "status-enabled" if dkim['exists'] else "status-disabled"
+    html_template += f"""
+                    <div class="security-status {dkim_class}">DKIM: {dkim_status}</div>
+"""
+
+    # DMARC
+    dmarc = email_security['dmarc']
+    dmarc_status = "Enabled" if dmarc['exists'] else "Disabled"
+    dmarc_class = "status-enabled" if dmarc['exists'] else "status-disabled"
+    html_template += f"""
+                    <div class="security-status {dmarc_class}">DMARC: {dmarc_status}</div>
+"""
+    if dmarc['issues']:
+        for issue in dmarc['issues']:
+            html_template += f"""
+                    <div class="security-status status-warning">DMARC Issue: {issue}</div>
+"""
+
+    # Email Providers
+    if email_security['email_providers']:
+        html_template += """
+                    <h4>Email Providers</h4>
+"""
+        for provider in email_security['email_providers']:
+            html_template += f"""
+                    <div class="dns-record">{provider}</div>
+"""
+
+    # DNS Takeover Risks
+    if dns_security['dns_takeover_risks']:
+        html_template += """
+                    <h4>DNS Takeover Risks</h4>
+"""
+        for risk in dns_security['dns_takeover_risks']:
+            html_template += f"""
+                    <div class="security-status status-warning">{risk['risk']}: {risk['details']}</div>
+"""
+
+    html_template += """
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="display-controls">
+        <button onclick="changeLayout(1)">1 Column</button>
+        <button onclick="changeLayout(2)">2 Columns</button>
+        <button onclick="changeLayout(3)" class="active">3 Columns</button>
+    </div>
+
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('screenshot')">Screenshot</div>
+                <div class="tab" onclick="switchTab('request')">Request/Response</div>
+            </div>
+            <div id="screenshotTab" class="tab-content active">
+                <img id="modalScreenshot" class="screenshot-modal" src="" alt="Screenshot">
+            </div>
+            <div id="requestTab" class="tab-content">
+                <div id="requestDetails" class="request-details"></div>
+            </div>
+        </div>
+    </div>
 """
 
     # Add the domain sections
@@ -1505,24 +1741,24 @@ def generate_html_report(results, output_dir, pretty_output=True):
         formatted_date, timezone_times = format_date(result['scan_date'])
         
         html_template += f"""
-        <div class="domain-section">
-            <div class="domain-header">
-                <div class="domain-info">
-                    <h2>{domain}</h2>
-                    <span class="timestamp">Scanned: {formatted_date}</span>
-                </div>
-                <div class="timezone-grid">
+    <div class="domain-section">
+        <div class="domain-header">
+            <div class="domain-info">
+                <h2>{domain}</h2>
+                <span class="timestamp">Scanned: {formatted_date}</span>
+            </div>
+            <div class="timezone-grid">
 """
         
         for tz_time in timezone_times:
             html_template += f"""
-                    <div class="timezone-item">{tz_time}</div>
+                <div class="timezone-item">{tz_time}</div>
 """
-        
+
         html_template += """
-                </div>
             </div>
-            <div class="services-grid cols-3">
+        </div>
+        <div class="services-grid cols-3">
 """
         
         # Convert services list to dictionary if it's not already
@@ -1545,189 +1781,162 @@ def generate_html_report(results, output_dir, pretty_output=True):
             service_data_json = json.dumps(service_data).replace('"', '&quot;') if service_data else 'null'
             
             html_template += f"""
-                <div class="service-card" data-service="{service_data_json}">
-                    <h3>{service_name}</h3>
-                    <span class="status {status_class}">{status_text}</span>
+            <div class="service-card" data-service="{service_data_json}">
+                <h3>{service_name}</h3>
+                <span class="status {status_class}">{status_text}</span>
 """
-            
+
             if service_data:
                 html_template += f"""
-                    <p>URL: {service_data['url']}</p>
-                    <p>Status: {service_data['status']}</p>
+                <p>URL: {service_data['url']}</p>
+                <p>Status: {service_data['status']}</p>
 """
                 if service_data.get('screenshot_path'):
                     screenshot_path = os.path.relpath(service_data['screenshot_path'], report_dir)
                     html_template += f"""
-                    <img src="{screenshot_path}" alt="Screenshot" class="screenshot">
+                <img src="{screenshot_path}" alt="Screenshot" class="screenshot">
 """
-            
+
             html_template += """
-                </div>
+            </div>
 """
-        
+
         html_template += """
-            </div>
         </div>
+    </div>
 """
 
-    # Add the rest of the HTML structure
     html_template += """
-    </div>
-    
-    <div class="display-controls">
-        <button onclick="changeLayout(1)">1 Column</button>
-        <button onclick="changeLayout(2)">2 Columns</button>
-        <button onclick="changeLayout(3)" class="active">3 Columns</button>
-    </div>
-    
-    <div id="detailsModal" class="modal">
-        <div class="modal-content">
-            <span class="close-button" onclick="closeModal()">&times;</span>
-            <div class="tabs">
-                <div class="tab active" onclick="switchTab('screenshot')">Screenshot</div>
-                <div class="tab" onclick="switchTab('request')">Request/Response</div>
-            </div>
-            <div id="screenshotTab" class="tab-content active">
-                <img id="modalScreenshot" class="screenshot-modal" src="" alt="Screenshot">
-            </div>
-            <div id="requestTab" class="tab-content">
-                <div id="requestDetails" class="request-details"></div>
-            </div>
-        </div>
-    </div>
-
     <script>
-        function changeLayout(columns) {{
-            const grid = document.querySelector('.services-grid');
-            grid.className = 'services-grid cols-' + columns;
-            
-            // Update active button
-            document.querySelectorAll('.display-controls button').forEach(btn => {{
-                btn.classList.remove('active');
-            }});
-            event.target.classList.add('active');
-        }}
+        // Define all functions first
+        function showDnsInfo() {
+            document.getElementById('dnsModal').style.display = 'block';
+        }
 
-        function closeModal() {{
+        function closeDnsModal() {
+            document.getElementById('dnsModal').style.display = 'none';
+        }
+
+        function closeModal() {
             document.getElementById('detailsModal').style.display = 'none';
-        }}
+        }
 
-        function switchTab(tabName) {{
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {{
-                tab.classList.remove('active');
-            }});
-            document.querySelectorAll('.tab').forEach(tab => {{
-                tab.classList.remove('active');
-            }});
+        function changeLayout(cols) {
+            const grid = document.querySelector('.services-grid');
+            grid.className = 'services-grid cols-' + cols;
             
-            // Show selected tab
+            // Update active state of buttons
+            document.querySelectorAll('.display-controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        function switchTab(tabName) {
+            const tabs = document.querySelectorAll('.tab');
+            const contents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(tab => tab.classList.remove('active'));
+            contents.forEach(content => content.classList.remove('active'));
+            
+            document.querySelector('.tab[onclick="switchTab(\\'' + tabName + '\\')"]').classList.add('active');
             document.getElementById(tabName + 'Tab').classList.add('active');
-            const tabSelector = '.tab[onclick="switchTab(\\'' + tabName + '\\')"]';
-            document.querySelector(tabSelector).classList.add('active');
-        }}
+        }
 
         // Initialize everything when the DOM is loaded
-        document.addEventListener('DOMContentLoaded', function() {{
-            // Set initial layout to 3 columns
-            const grid = document.querySelector('.services-grid');
-            grid.className = 'services-grid cols-3';
-            
-            // Set initial active button
-            document.querySelectorAll('.display-controls button').forEach(btn => {{
-                btn.classList.remove('active');
-            }});
-            document.querySelector('.display-controls button:nth-child(3)').classList.add('active');
-
-            // Theme toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Theme switcher
             const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
             const currentTheme = localStorage.getItem('theme') || 'light';
             
             // Set initial theme
-            if (currentTheme === 'dark') {{
+            if (currentTheme === 'dark') {
                 document.documentElement.setAttribute('data-theme', 'dark');
                 toggleSwitch.checked = true;
-            }}
+            }
             
             // Theme switch event listener
-            toggleSwitch.addEventListener('change', function(e) {{
-                if (e.target.checked) {{
+            toggleSwitch.addEventListener('change', function(e) {
+                if (e.target.checked) {
                     document.documentElement.setAttribute('data-theme', 'dark');
                     localStorage.setItem('theme', 'dark');
-                }} else {{
+                } else {
                     document.documentElement.setAttribute('data-theme', 'light');
                     localStorage.setItem('theme', 'light');
-                }}
-            }});
+                }
+            });
+
+            // Set initial layout to 3 columns
+            const grid = document.querySelector('.services-grid');
+            if (grid) {
+                grid.className = 'services-grid cols-3';
+            }
 
             // Add click event listeners to all service cards
-            document.querySelectorAll('.service-card').forEach(card => {{
-                card.addEventListener('click', function() {{
-                    try {{
+            document.querySelectorAll('.service-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    try {
                         const serviceData = JSON.parse(this.getAttribute('data-service'));
-                        const serviceName = this.querySelector('h3').textContent;
-                        const screenshot = this.querySelector('.screenshot');
-                        
-                        // Show modal
-                        const modal = document.getElementById('detailsModal');
-                        modal.style.display = 'block';
-                        
-                        // Set screenshot
-                        if (screenshot) {{
-                            document.getElementById('modalScreenshot').src = screenshot.src;
-                        }}
-                        
-                        // Set request details
-                        if (serviceData) {{
-                            let requestDetails = 
+                        if (serviceData) {
+                            const screenshot = document.getElementById('modalScreenshot');
+                            const requestDetails = document.getElementById('requestDetails');
+                            
+                            if (serviceData.screenshot_path) {
+                                screenshot.src = serviceData.screenshot_path;
+                                screenshot.style.display = 'block';
+                            } else {
+                                screenshot.style.display = 'none';
+                            }
+                            
+                            let requestDetailsHtml = 
                                 '<div class="header">Request/Response Details</div>' +
                                 '<div class="section">' +
                                 '<div class="section-title">Original URL</div>' +
                                 '<div class="header-item">' + serviceData.url + '</div>' +
                                 '</div>';
                             
-                            if (serviceData.redirect_url) {{
-                                requestDetails += 
+                            if (serviceData.redirect_url) {
+                                requestDetailsHtml += 
                                     '<div class="section">' +
                                     '<div class="section-title">Redirect URL</div>' +
                                     '<div class="header-item">' + serviceData.redirect_url + '</div>' +
                                     '</div>';
-                            }}
+                            }
                             
-                            requestDetails += 
+                            requestDetailsHtml += 
                                 '<div class="section">' +
                                 '<div class="section-title">Status</div>' +
                                 '<div class="header-item">' + serviceData.status + '</div>' +
                                 '</div>';
                             
                             // Add Request Headers
-                            if (serviceData.headers) {{
-                                requestDetails += 
+                            if (serviceData.headers) {
+                                requestDetailsHtml += 
                                     '<div class="section">' +
                                     '<div class="section-title">Request Headers</div>';
                                 
-                                for (const [key, value] of Object.entries(serviceData.headers)) {{
-                                    requestDetails += '<div class="header-item">' + key + ': ' + value + '</div>';
-                                }}
+                                for (const [key, value] of Object.entries(serviceData.headers)) {
+                                    requestDetailsHtml += '<div class="header-item">' + key + ': ' + value + '</div>';
+                                }
                                 
-                                requestDetails += '</div>';
-                            }}
+                                requestDetailsHtml += '</div>';
+                            }
                             
                             // Add Response Headers
-                            if (serviceData.headers) {{
-                                requestDetails += 
+                            if (serviceData.headers) {
+                                requestDetailsHtml += 
                                     '<div class="section">' +
                                     '<div class="section-title">Response Headers</div>';
                                 
-                                for (const [key, value] of Object.entries(serviceData.headers)) {{
-                                    requestDetails += '<div class="header-item">' + key + ': ' + value + '</div>';
-                                }}
+                                for (const [key, value] of Object.entries(serviceData.headers)) {
+                                    requestDetailsHtml += '<div class="header-item">' + key + ': ' + value + '</div>';
+                                }
                                 
-                                requestDetails += '</div>';
-                            }}
+                                requestDetailsHtml += '</div>';
+                            }
                             
                             // Add Response Body
-                            requestDetails += 
+                            requestDetailsHtml += 
                                 '<div class="section">' +
                                 '<div class="section-title">Response Body</div>' +
                                 '<div class="header-item" style="white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto;">' + 
@@ -1737,24 +1946,30 @@ def generate_html_report(results, output_dir, pretty_output=True):
                                 '</div>' +
                                 '</div>';
                             
-                            document.getElementById('requestDetails').innerHTML = requestDetails;
-                        }} else {{
-                            document.getElementById('requestDetails').innerHTML = '<div class="header">No request details available</div>';
-                        }}
-                    }} catch (error) {{
+                            requestDetails.innerHTML = requestDetailsHtml;
+                            
+                            // Show the modal and switch to request tab
+                            document.getElementById('detailsModal').style.display = 'block';
+                            switchTab('request');
+                        }
+                    } catch (error) {
                         console.error('Error parsing service data:', error);
-                    }}
-                }});
-            }});
+                    }
+                });
+            });
 
-            // Close modal when clicking outside
-            window.onclick = function(event) {{
+            // Close modals when clicking outside
+            window.onclick = function(event) {
                 const modal = document.getElementById('detailsModal');
-                if (event.target == modal) {{
+                const dnsModal = document.getElementById('dnsModal');
+                if (event.target == modal) {
                     closeModal();
-                }}
-            }};
-        }});
+                }
+                if (event.target == dnsModal) {
+                    closeDnsModal();
+                }
+            };
+        });
     </script>
 </body>
 </html>
