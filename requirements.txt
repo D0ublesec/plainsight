@@ -1,10 +1,10 @@
+argparse>=1.4.0
 dnspython>=2.4.2
 requests>=2.31.0
 selenium>=4.16.0
 webdriver-manager>=4.0.1
-beautifulsoup4>=4.12.2
 rich>=13.7.0
 colorama>=0.4.6
-tqdm>=4.66.1
-urllib3>=2.1.0
-python-dateutil>=2.8.2 
+beautifulsoup4>=4.12.2
+pytz>=2024.1
+urllib3>=2.1.0 
