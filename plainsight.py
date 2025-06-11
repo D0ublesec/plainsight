@@ -1923,12 +1923,12 @@ def generate_html_report(results, output_dir, pretty_output=True):
                             }
                             
                             // Add Response Headers
-                            if (serviceData.headers) {
+                            if (serviceData.response_headers) {
                                 requestDetailsHtml += 
                                     '<div class="section">' +
                                     '<div class="section-title">Response Headers</div>';
                                 
-                                for (const [key, value] of Object.entries(serviceData.headers)) {
+                                for (const [key, value] of Object.entries(serviceData.response_headers)) {
                                     requestDetailsHtml += '<div class="header-item">' + key + ': ' + value + '</div>';
                                 }
                                 
