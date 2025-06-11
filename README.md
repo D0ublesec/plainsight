@@ -5,7 +5,15 @@ OSINT tool for:
 - Checking DNS security
 - Checking if domains are vulnerable to domain takeover
 
+It will save the results to the "./plainsight_results" directory if nothing is defined.
+
+A HTML report is generated that you can view locally to quickly review the discovered sites.
+
 ``` bash
+usage: plainsight.py [-h] [-f FILE] [-v] [-o OUTPUT] [--no-banner] [--no-pretty] [-t THREADS] [domains ...]
+
+OSINT tool for detecting 3rd party services used by companies.
+
 positional arguments:
   domains               List of domains to process.
 
@@ -17,5 +25,6 @@ options:
                         Output directory for results.
   --no-banner           Disable the ASCII banner.
   --no-pretty           Disable pretty output formatting.
-  --dns-security        Enable enhanced DNS security checks.
+  -t THREADS, --threads THREADS
+                        Number of threads for scanning (default: 5)
 ```
