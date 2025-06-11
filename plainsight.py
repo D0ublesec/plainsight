@@ -26,6 +26,7 @@ import base64
 from bs4 import BeautifulSoup
 import warnings
 import select
+import pytz
 
 # Import msvcrt only on Windows
 if os.name == 'nt':
@@ -60,7 +61,9 @@ def setup_logging(output_dir, verbose_level):
     """Setup logging configuration."""
     # Only create log file if verbose level is set
     if verbose_level > 0:
-        log_file = os.path.join(output_dir, f'scan_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        # Get the domain name from the output directory
+        domain_name = os.path.basename(output_dir)
+        log_file = os.path.join(output_dir, f'scan_{domain_name}.log')
         
         # Set logging level based on verbose level
         if verbose_level == 2:
@@ -477,7 +480,8 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
                     'status': response.status_code,
                     'headers': dict(response.headers),
                     'screenshot_path': take_screenshot(driver, url, output_dir, f"screenshot_{domain}_{service}") if redirect_url else None,
-                    'redirect_url': redirect_url
+                    'redirect_url': redirect_url,
+                    'response_body': response.text[:5000]  # Include first 5000 characters of response body
                 }
             
             # Nethunt check
@@ -579,7 +583,8 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
                 'html_path': html_path,
                 'screenshot_path': screenshot_path,
                 'headers': dict(response.headers),
-                'redirect_url': redirect_url
+                'redirect_url': redirect_url,
+                'response_body': response.text[:5000]  # Include first 5000 characters of response body
             }
     except requests.RequestException as e:
         if verbose_level >= 1 and pretty_output:
@@ -836,7 +841,7 @@ def get_company_logo(domain, output_dir, pretty_output=True):
 def save_dns_security_to_csv(security_results, output_dir, domain):
     """Save DNS security results to CSV format."""
     safe_domain = domain.replace('.', '_')
-    csv_path = os.path.join(output_dir, f"dns_security_{safe_domain}.csv")
+    csv_path = os.path.join(output_dir, f"dns_email_security_{safe_domain}.csv")
     
     # Prepare CSV data
     csv_data = []
@@ -943,9 +948,26 @@ def generate_html_report(results, output_dir, pretty_output=True):
             # Format the date with proper ordinal and local timezone
             formatted_date = f"{day}{get_ordinal(day)} {dt.strftime('%B %Y at %H:%M:%S')} {dt.astimezone().strftime('%Z')}"
             
-            return formatted_date
+            # Add timezone conversions in sequential order
+            timezones = [
+                ('US/Pacific', 'America/Los_Angeles'),
+                ('US/Mountain', 'America/Denver'),
+                ('US/Central', 'America/Chicago'),
+                ('US/Eastern', 'America/New_York'),
+                ('UK', 'Europe/London')
+            ]
+            
+            timezone_times = []
+            for name, tz in timezones:
+                try:
+                    tz_time = dt.astimezone(pytz.timezone(tz))
+                    timezone_times.append(f"{name}: {tz_time.strftime('%H:%M:%S %Z')}")
+                except:
+                    continue
+            
+            return formatted_date, timezone_times
         except Exception as e:
-            return date_str
+            return date_str, []
 
     if pretty_output:
         print(f"{Colors.YELLOW}[!] Generating HTML report...{Colors.RESET}")
@@ -956,82 +978,200 @@ def generate_html_report(results, output_dir, pretty_output=True):
     report_dir = os.path.join(output_dir, safe_domain)
     os.makedirs(report_dir, exist_ok=True)
 
-    html_content = f"""<!DOCTYPE html>
+    # First, create the HTML template without JavaScript
+    html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plainsight Scan Results - {domain}</title>
+    <title>👀 Plainsight Scan Results - {domain} 👀</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👀</text></svg>">
     <style>
+        :root {{
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --border-color: #ddd;
+            --header-bg: #f4f4f4;
+            --modal-bg: #ffffff;
+            --input-bg: #ffffff;
+            --button-bg: #ff6b00;
+            --button-hover: #e65c00;
+            --comment-bg: #f9f9f9;
+        }}
+
+        [data-theme="dark"] {{
+            --bg-color: #0a192f;
+            --text-color: #ffffff;
+            --border-color: #1e3a5f;
+            --header-bg: #112240;
+            --modal-bg: #112240;
+            --input-bg: #1e3a5f;
+            --button-bg: #ff6b00;
+            --button-hover: #e65c00;
+            --comment-bg: #112240;
+        }}
+
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
             margin: 0;
             padding: 20px;
-            background: #f5f5f5;
-            color: #333;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }}
+
         .container {{
             max-width: 1200px;
             margin: 0 auto;
         }}
+
         .header {{
-            background: #fff;
+            background: var(--header-bg);
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-        }}
-        .domain-section {{
-            background: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }}
-        .domain-header {{
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
         }}
+
+        .header-content {{
+            flex: 1;
+        }}
+
+        .header h1 {{
+            margin: 0 0 10px 0;
+            color: var(--text-color);
+        }}
+
+        .header p {{
+            margin: 0;
+            color: var(--text-color);
+            opacity: 0.8;
+        }}
+
+        .company-logo {{
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+            margin-left: 20px;
+            border-radius: 8px;
+            background: var(--bg-color);
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+
+        .domain-section {{
+            background: var(--header-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }}
+
+        .domain-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: var(--header-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+
+        .domain-info {{
+            flex: 1;
+        }}
+
+        .domain-info h2 {{
+            margin: 0 0 10px 0;
+            font-size: 1.8em;
+            color: var(--text-color);
+        }}
+
+        .timezone-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-left: 30px;
+            padding: 15px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            font-size: 0.85em;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+        }}
+
+        .timezone-item {{
+            padding: 8px 12px;
+            background: var(--header-bg);
+            border-radius: 6px;
+            font-weight: 500;
+            color: var(--text-color);
+            transition: transform 0.2s ease;
+        }}
+
+        .timezone-item:hover {{
+            transform: translateY(-1px);
+        }}
+
+        .timestamp {{
+            color: var(--text-color);
+            font-size: 0.9em;
+            opacity: 0.8;
+        }}
+
         .services-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 20px;
         }}
+
         .services-grid.cols-1 {{
             grid-template-columns: 1fr;
         }}
+
         .services-grid.cols-2 {{
             grid-template-columns: repeat(2, 1fr);
         }}
+
         .services-grid.cols-3 {{
             grid-template-columns: repeat(3, 1fr);
         }}
+
         .service-card {{
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 15px;
             cursor: pointer;
             transition: all 0.3s ease;
             position: relative;
+            padding-top: 40px;  /* Add space for the status label */
         }}
+
         .service-card:hover {{
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }}
+
         .service-card h3 {{
             margin: 0 0 10px 0;
-            color: #2c3e50;
+            color: var(--text-color);
+            padding-right: 80px;  /* Add space for the status label */
         }}
+
         .service-card p {{
             margin: 5px 0;
-            color: #666;
+            color: var(--text-color);
         }}
+
         .service-card .status {{
             position: absolute;
             top: 10px;
@@ -1039,15 +1179,19 @@ def generate_html_report(results, output_dir, pretty_output=True):
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 0.8em;
+            z-index: 1;
         }}
+
         .status-found {{
             background: #d4edda;
             color: #155724;
         }}
+
         .status-not-found {{
             background: #f8d7da;
             color: #721c24;
         }}
+
         .screenshot {{
             width: 100%;
             height: auto;
@@ -1056,6 +1200,7 @@ def generate_html_report(results, output_dir, pretty_output=True):
             border-radius: 4px;
             margin-top: 10px;
         }}
+
         .modal {{
             display: none;
             position: fixed;
@@ -1066,114 +1211,160 @@ def generate_html_report(results, output_dir, pretty_output=True):
             background: rgba(0,0,0,0.9);
             z-index: 1000;
         }}
+
         .modal-content {{
-            position: relative;
-            background: #fff;
+            background: var(--modal-bg);
             margin: 2% auto;
-            padding: 20px;
+            padding: 25px;
             width: 90%;
             max-width: 1200px;
-            border-radius: 8px;
+            border-radius: 12px;
             max-height: 96vh;
             overflow-y: auto;
+            color: var(--text-color);
+            border: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         }}
+
         .close-button {{
             position: absolute;
             right: 20px;
             top: 20px;
             font-size: 24px;
             cursor: pointer;
-            color: #666;
+            color: var(--text-color);
             z-index: 1001;
         }}
+
         .tabs {{
             display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
+            margin: -25px -25px 20px -25px;
+            padding: 20px 25px;
+            background: var(--header-bg);
+            border-radius: 12px 12px 0 0;
             position: sticky;
             top: 0;
-            background: #fff;
-            padding: 10px 0;
             z-index: 1;
         }}
+
         .tab {{
             padding: 10px 20px;
             cursor: pointer;
-            border: 1px solid transparent;
-            border-bottom: none;
-            margin-right: 5px;
-            border-radius: 4px 4px 0 0;
+            border: none;
+            margin-right: 10px;
+            border-radius: 6px;
+            color: var(--text-color);
+            font-weight: 500;
+            transition: all 0.3s ease;
         }}
+
+        .tab:hover {{
+            background: var(--bg-color);
+        }}
+
         .tab.active {{
-            background: #fff;
-            border-color: #ddd;
-            border-bottom-color: #fff;
-            margin-bottom: -1px;
+            background: var(--button-bg);
+            color: #fff;
         }}
-        .tab-content {{
-            display: none;
-            padding: 20px;
-            background: #fff;
-            border-radius: 0 0 4px 4px;
-        }}
-        .tab-content.active {{
-            display: block;
-        }}
+
         .request-details, .response-details {{
+            background: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
             white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 14px;
-            line-height: 1.4;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            overflow-x: auto;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            transition: all 0.3s ease;
         }}
+
+        .request-details .header, .response-details .header {{
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--text-color);
+        }}
+
+        .request-details .section, .response-details .section {{
+            margin: 15px 0;
+            padding: 12px;
+            background: var(--header-bg);
+            border-radius: 6px;
+        }}
+
+        .request-details .section-title, .response-details .section-title {{
+            font-weight: 600;
+            color: var(--button-bg);
+            margin: 0 0 8px 0;
+            font-size: 1.1em;
+        }}
+
+        .request-details .header-item, .response-details .header-item {{
+            margin: 4px 0;
+            padding: 6px 10px;
+            background: var(--bg-color);
+            border-radius: 4px;
+            font-size: 0.9em;
+            border-left: 3px solid var(--button-bg);
+        }}
+
         .screenshot-modal {{
             max-width: 100%;
             height: auto;
             border-radius: 4px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
-        .timestamp {{
-            color: #666;
-            font-size: 0.9em;
-        }}
+
         .headers-section {{
             margin-top: 15px;
             padding-top: 15px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--border-color);
         }}
+
         .headers-section h4 {{
             margin: 0 0 10px 0;
-            color: #2c3e50;
+            color: var(--text-color);
         }}
+
         .display-controls {{
             position: fixed;
             bottom: 20px;
             right: 20px;
-            background: #fff;
+            background: var(--header-bg);
             padding: 10px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             z-index: 100;
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }}
+
         .display-controls button {{
             padding: 5px 10px;
             margin: 0 5px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
-            background: #fff;
+            background: var(--bg-color);
             cursor: pointer;
+            color: var(--text-color);
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
         }}
+
         .display-controls button:hover {{
-            background: #f8f9fa;
+            background: var(--input-bg);
         }}
+
         .display-controls button.active {{
-            background: #007bff;
+            background: var(--button-bg);
             color: #fff;
-            border-color: #007bff;
+            border-color: var(--button-bg);
         }}
+
         .redirect-label {{
             background: #fff3cd;
             color: #856404;
@@ -1182,36 +1373,154 @@ def generate_html_report(results, output_dir, pretty_output=True):
             font-size: 0.8em;
             margin-left: 8px;
         }}
+
         .redirect-section {{
             margin-top: 15px;
             padding: 10px;
-            background: #f8f9fa;
+            background: var(--input-bg);
             border-left: 4px solid #ffc107;
             border-radius: 4px;
         }}
+
         .redirect-section h4 {{
             margin: 0 0 10px 0;
-            color: #856404;
+            color: var(--text-color);
+        }}
+
+        /* Theme Switch Styles */
+        .theme-switch-wrapper {{
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            align-items: center;
+            z-index: 1000;
+        }}
+
+        .theme-switch {{
+            display: inline-block;
+            width: 60px;
+            height: 32px;
+            position: relative;
+        }}
+
+        .theme-switch input {{
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }}
+
+        .slider {{
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--border-color);
+            border-radius: 32px;
+            transition: background 0.3s;
+        }}
+
+        .slider:before {{
+            position: absolute;
+            content: '';
+            height: 24px;
+            width: 24px;
+            left: 4px;
+            top: 4px;
+            background: var(--bg-color);
+            border-radius: 50%;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }}
+
+        .theme-switch input:checked + .slider:before {{
+            transform: translateX(28px);
+        }}
+
+        .slider:after {{
+            content: '☀';
+            position: absolute;
+            left: 8px;
+            top: 4px;
+            font-size: 16px;
+            transition: opacity 0.3s;
+            color: #ffd700;
+        }}
+
+        .theme-switch input:checked + .slider:after {{
+            content: '☾';
+            left: 36px;
+            color: #e0e0e0;
+        }}
+
+        .tab-content {{
+            display: none;
+            padding: 20px;
+            background: var(--bg-color);
+            border-radius: 0 0 8px 8px;
+        }}
+
+        .tab-content.active {{
+            display: block;
         }}
     </style>
 </head>
 <body>
+    <div class="theme-switch-wrapper">
+        <label class="theme-switch" for="checkbox">
+            <input type="checkbox" id="checkbox" />
+            <div class="slider"></div>
+        </label>
+    </div>
     <div class="container">
         <div class="header">
-            <h1>Plainsight Scan Results - {domain}</h1>
-            <p>Scan Date: {format_date(results[0]['scan_date'])}</p>
+            <div class="header-content">
+                <h1>👀 Plainsight Scan Results - {domain} 👀</h1>
+                <p>Scan Date: {format_date(results[0]['scan_date'])[0]}</p>
+            </div>
+"""
+
+    # Add company logo if available
+    logo_filename = f'company_logo_{safe_domain}.png'
+    logo_path = os.path.join(report_dir, logo_filename)
+    if os.path.exists(logo_path):
+        html_template += f"""
+            <img src="{logo_filename}" alt="Company Logo" class="company-logo" title="Logo sourced from Clearbit - may be outdated">
+"""
+    else:
+        html_template += """
+            <div class="company-logo" title="No company logo available"></div>
+"""
+
+    html_template += """
         </div>
 """
 
+    # Add the domain sections
     for result in results:
         domain = result['domain']
         services = result['services']
+        formatted_date, timezone_times = format_date(result['scan_date'])
         
-        html_content += f"""
+        html_template += f"""
         <div class="domain-section">
             <div class="domain-header">
-                <h2>{domain}</h2>
-                <span class="timestamp">Scanned: {format_date(result['scan_date'])}</span>
+                <div class="domain-info">
+                    <h2>{domain}</h2>
+                    <span class="timestamp">Scanned: {formatted_date}</span>
+                </div>
+                <div class="timezone-grid">
+"""
+        
+        for tz_time in timezone_times:
+            html_template += f"""
+                    <div class="timezone-item">{tz_time}</div>
+"""
+        
+        html_template += """
+                </div>
             </div>
             <div class="services-grid cols-3">
 """
@@ -1232,42 +1541,43 @@ def generate_html_report(results, output_dir, pretty_output=True):
                 status_class = "status-not-found"
                 status_text = "Not Found"
             
-            # Convert service_data to JSON string for data attribute, properly escaping quotes
+            # Convert service_data to JSON string for data attribute
             service_data_json = json.dumps(service_data).replace('"', '&quot;') if service_data else 'null'
             
-            html_content += f"""
+            html_template += f"""
                 <div class="service-card" data-service="{service_data_json}">
                     <h3>{service_name}</h3>
                     <span class="status {status_class}">{status_text}</span>
 """
             
             if service_data:
-                html_content += f"""
+                html_template += f"""
                     <p>URL: {service_data['url']}</p>
                     <p>Status: {service_data['status']}</p>
 """
                 if service_data.get('screenshot_path'):
                     screenshot_path = os.path.relpath(service_data['screenshot_path'], report_dir)
-                    html_content += f"""
+                    html_template += f"""
                     <img src="{screenshot_path}" alt="Screenshot" class="screenshot">
 """
             
-            html_content += """
+            html_template += """
                 </div>
 """
         
-        html_content += """
+        html_template += """
             </div>
         </div>
 """
-    
-    html_content += """
+
+    # Add the rest of the HTML structure
+    html_template += """
     </div>
     
     <div class="display-controls">
-        <button onclick="changeLayout(1)" class="active">1 Column</button>
+        <button onclick="changeLayout(1)">1 Column</button>
         <button onclick="changeLayout(2)">2 Columns</button>
-        <button onclick="changeLayout(3)">3 Columns</button>
+        <button onclick="changeLayout(3)" class="active">3 Columns</button>
     </div>
     
     <div id="detailsModal" class="modal">
@@ -1275,10 +1585,7 @@ def generate_html_report(results, output_dir, pretty_output=True):
             <span class="close-button" onclick="closeModal()">&times;</span>
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('screenshot')">Screenshot</div>
-                <div class="tab" onclick="switchTab('request')">Request</div>
-                <div class="tab" onclick="switchTab('response')">Response</div>
-                <div class="tab" onclick="switchTab('redirectRequest')">Redirect Request</div>
-                <div class="tab" onclick="switchTab('redirectResponse')">Redirect Response</div>
+                <div class="tab" onclick="switchTab('request')">Request/Response</div>
             </div>
             <div id="screenshotTab" class="tab-content active">
                 <img id="modalScreenshot" class="screenshot-modal" src="" alt="Screenshot">
@@ -1286,24 +1593,77 @@ def generate_html_report(results, output_dir, pretty_output=True):
             <div id="requestTab" class="tab-content">
                 <div id="requestDetails" class="request-details"></div>
             </div>
-            <div id="responseTab" class="tab-content">
-                <div id="responseDetails" class="response-details"></div>
-            </div>
-            <div id="redirectRequestTab" class="tab-content">
-                <div id="redirectRequestDetails" class="request-details"></div>
-            </div>
-            <div id="redirectResponseTab" class="tab-content">
-                <div id="redirectResponseDetails" class="response-details"></div>
-            </div>
         </div>
     </div>
 
     <script>
-        // Add click event listeners to all service cards
-        document.addEventListener('DOMContentLoaded', function() {
-            document.querySelectorAll('.service-card').forEach(card => {
-                card.addEventListener('click', function() {
-                    try {
+        function changeLayout(columns) {{
+            const grid = document.querySelector('.services-grid');
+            grid.className = 'services-grid cols-' + columns;
+            
+            // Update active button
+            document.querySelectorAll('.display-controls button').forEach(btn => {{
+                btn.classList.remove('active');
+            }});
+            event.target.classList.add('active');
+        }}
+
+        function closeModal() {{
+            document.getElementById('detailsModal').style.display = 'none';
+        }}
+
+        function switchTab(tabName) {{
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {{
+                tab.classList.remove('active');
+            }});
+            document.querySelectorAll('.tab').forEach(tab => {{
+                tab.classList.remove('active');
+            }});
+            
+            // Show selected tab
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            const tabSelector = '.tab[onclick="switchTab(\\'' + tabName + '\\')"]';
+            document.querySelector(tabSelector).classList.add('active');
+        }}
+
+        // Initialize everything when the DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {{
+            // Set initial layout to 3 columns
+            const grid = document.querySelector('.services-grid');
+            grid.className = 'services-grid cols-3';
+            
+            // Set initial active button
+            document.querySelectorAll('.display-controls button').forEach(btn => {{
+                btn.classList.remove('active');
+            }});
+            document.querySelector('.display-controls button:nth-child(3)').classList.add('active');
+
+            // Theme toggle functionality
+            const toggleSwitch = document.querySelector('.theme-switch input[type="checkbox"]');
+            const currentTheme = localStorage.getItem('theme') || 'light';
+            
+            // Set initial theme
+            if (currentTheme === 'dark') {{
+                document.documentElement.setAttribute('data-theme', 'dark');
+                toggleSwitch.checked = true;
+            }}
+            
+            // Theme switch event listener
+            toggleSwitch.addEventListener('change', function(e) {{
+                if (e.target.checked) {{
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('theme', 'dark');
+                }} else {{
+                    document.documentElement.setAttribute('data-theme', 'light');
+                    localStorage.setItem('theme', 'light');
+                }}
+            }});
+
+            // Add click event listeners to all service cards
+            document.querySelectorAll('.service-card').forEach(card => {{
+                card.addEventListener('click', function() {{
+                    try {{
                         const serviceData = JSON.parse(this.getAttribute('data-service'));
                         const serviceName = this.querySelector('h3').textContent;
                         const screenshot = this.querySelector('.screenshot');
@@ -1313,112 +1673,88 @@ def generate_html_report(results, output_dir, pretty_output=True):
                         modal.style.display = 'block';
                         
                         // Set screenshot
-                        if (screenshot) {
+                        if (screenshot) {{
                             document.getElementById('modalScreenshot').src = screenshot.src;
-                        }
+                        }}
                         
                         // Set request details
-                        if (serviceData) {
-                            // Original request details
-                            const requestDetails = `URL: ${serviceData.url}
-Method: GET
-Status: ${serviceData.status}
-
-Request Headers:
-${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                        if (serviceData) {{
+                            let requestDetails = 
+                                '<div class="header">Request/Response Details</div>' +
+                                '<div class="section">' +
+                                '<div class="section-title">Original URL</div>' +
+                                '<div class="header-item">' + serviceData.url + '</div>' +
+                                '</div>';
                             
-                            document.getElementById('requestDetails').textContent = requestDetails;
+                            if (serviceData.redirect_url) {{
+                                requestDetails += 
+                                    '<div class="section">' +
+                                    '<div class="section-title">Redirect URL</div>' +
+                                    '<div class="header-item">' + serviceData.redirect_url + '</div>' +
+                                    '</div>';
+                            }}
                             
-                            // Original response details
-                            const responseDetails = `Status: ${serviceData.status}
-URL: ${serviceData.url}
-
-Response Headers:
-${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                            requestDetails += 
+                                '<div class="section">' +
+                                '<div class="section-title">Status</div>' +
+                                '<div class="header-item">' + serviceData.status + '</div>' +
+                                '</div>';
                             
-                            document.getElementById('responseDetails').textContent = responseDetails;
-                            
-                            // Redirect information if present
-                            if (serviceData.redirect_url) {
-                                const redirectRequestDetails = `Original URL: ${serviceData.url}
-Redirect URL: ${serviceData.redirect_url}
-Status: ${serviceData.status}
-
-Request Headers:
-${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                            // Add Request Headers
+                            if (serviceData.headers) {{
+                                requestDetails += 
+                                    '<div class="section">' +
+                                    '<div class="section-title">Request Headers</div>';
                                 
-                                const redirectResponseDetails = `Status: ${serviceData.status}
-Redirect URL: ${serviceData.redirect_url}
-
-Response Headers:
-${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\\n')}`;
+                                for (const [key, value] of Object.entries(serviceData.headers)) {{
+                                    requestDetails += '<div class="header-item">' + key + ': ' + value + '</div>';
+                                }}
                                 
-                                document.getElementById('redirectRequestDetails').textContent = redirectRequestDetails;
-                                document.getElementById('redirectResponseDetails').textContent = redirectResponseDetails;
+                                requestDetails += '</div>';
+                            }}
+                            
+                            // Add Response Headers
+                            if (serviceData.headers) {{
+                                requestDetails += 
+                                    '<div class="section">' +
+                                    '<div class="section-title">Response Headers</div>';
                                 
-                                // Show redirect tabs
-                                document.querySelectorAll('.tab').forEach(tab => {
-                                    if (tab.textContent.includes('Redirect')) {
-                                        tab.style.display = 'block';
-                                    }
-                                });
-                            } else {
-                                // Hide redirect tabs if no redirect
-                                document.querySelectorAll('.tab').forEach(tab => {
-                                    if (tab.textContent.includes('Redirect')) {
-                                        tab.style.display = 'none';
-                                    }
-                                });
-                            }
-                        } else {
-                            document.getElementById('requestDetails').textContent = 'No request details available';
-                            document.getElementById('responseDetails').textContent = 'No response details available';
-                            document.getElementById('redirectRequestDetails').textContent = 'No redirect request details available';
-                            document.getElementById('redirectResponseDetails').textContent = 'No redirect response details available';
-                        }
-                    } catch (error) {
+                                for (const [key, value] of Object.entries(serviceData.headers)) {{
+                                    requestDetails += '<div class="header-item">' + key + ': ' + value + '</div>';
+                                }}
+                                
+                                requestDetails += '</div>';
+                            }}
+                            
+                            // Add Response Body
+                            requestDetails += 
+                                '<div class="section">' +
+                                '<div class="section-title">Response Body</div>' +
+                                '<div class="header-item" style="white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto;">' + 
+                                (serviceData.response_body ? 
+                                    serviceData.response_body.replace(/</g, '&lt;').replace(/>/g, '&gt;') : 
+                                    'No response body available') + 
+                                '</div>' +
+                                '</div>';
+                            
+                            document.getElementById('requestDetails').innerHTML = requestDetails;
+                        }} else {{
+                            document.getElementById('requestDetails').innerHTML = '<div class="header">No request details available</div>';
+                        }}
+                    }} catch (error) {{
                         console.error('Error parsing service data:', error);
-                    }
-                });
-            });
-        });
-        
-        function closeModal() {
-            document.getElementById('detailsModal').style.display = 'none';
-        }
-        
-        function switchTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Show selected tab
-            document.getElementById(tabName + 'Tab').classList.add('active');
-            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
-        }
-        
-        function changeLayout(columns) {
-            const grid = document.querySelector('.services-grid');
-            grid.className = 'services-grid cols-' + columns;
-            
-            // Update active button
-            document.querySelectorAll('.display-controls button').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
-        
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('detailsModal');
-            if (event.target == modal) {
-                closeModal();
-            }
-        }
+                    }}
+                }});
+            }});
+
+            // Close modal when clicking outside
+            window.onclick = function(event) {{
+                const modal = document.getElementById('detailsModal');
+                if (event.target == modal) {{
+                    closeModal();
+                }}
+            }};
+        }});
     </script>
 </body>
 </html>
@@ -1427,7 +1763,7 @@ ${Object.entries(serviceData.headers || {}).map(([key, value]) => `${key}: ${val
     # Update the report filename to include the target domain
     report_path = os.path.join(report_dir, f'report_{safe_domain}.html')
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
+        f.write(html_template)
     
     if pretty_output:
         print(f"{Colors.GREEN}[+] Generated HTML report: {report_path}{Colors.RESET}")
@@ -1521,9 +1857,6 @@ def main():
     base_output_dir = args.output or os.path.join(os.getcwd(), 'plainsight_results')
     os.makedirs(base_output_dir, exist_ok=True)
     
-    # Setup logging
-    logger = setup_logging(base_output_dir, args.verbose)
-    
     # Print banner
     if not args.no_banner:
         print_banner()
@@ -1531,7 +1864,7 @@ def main():
     # Load definitions
     definitions = load_definitions()
     if not definitions['services']:
-        logger.error("No services found in definitions/public_services.txt")
+        print(f"{Colors.RED}[-] No services found in definitions/public_services.txt{Colors.RESET}")
         return
     
     # Setup WebDriver
@@ -1555,6 +1888,9 @@ def main():
             safe_domain = domain.replace('.', '_')
             domain_dir = os.path.join(base_output_dir, safe_domain)
             os.makedirs(domain_dir, exist_ok=True)
+
+            # Setup domain-specific logging
+            logger = setup_logging(domain_dir, args.verbose)
 
             # Get company logo first
             company_logo = get_company_logo(domain, domain_dir, not args.no_pretty)
