@@ -1,14 +1,19 @@
 # plainsight
-
+## Overview
 OSINT tool for:
 - Detecting 3rd party services used by companies.
 - Checking DNS security
 - Checking if domains are vulnerable to domain takeover
 
-It will save the results to the "./plainsight_results" directory if nothing is defined.
+## CLI Output Example
+![plainsight_cli_hd](https://github.com/user-attachments/assets/d919778c-81bf-4e63-965f-62f3f0964854)
 
+## HTML Report Example
 A HTML report is generated that you can view locally to quickly review the discovered sites.
 
+![plainsight_web_report_hd](https://github.com/user-attachments/assets/e7c47b84-4e06-4993-a648-2f0c4381feae)
+
+## Help
 ``` bash
 usage: plainsight.py [-h] [-f FILE] [-v] [-o OUTPUT] [--no-banner] [--no-pretty] [-t THREADS] [domains ...]
 
