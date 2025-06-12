@@ -1948,9 +1948,9 @@ def generate_html_report(results, output_dir, pretty_output=True):
                             
                             requestDetails.innerHTML = requestDetailsHtml;
                             
-                            // Show the modal and switch to request tab
+                            // Show the modal and switch to screenshot tab
                             document.getElementById('detailsModal').style.display = 'block';
-                            switchTab('request');
+                            switchTab('screenshot');
                         }
                     } catch (error) {
                         console.error('Error parsing service data:', error);
