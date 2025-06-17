@@ -1777,8 +1777,15 @@ def generate_html_report(results, output_dir, pretty_output=True):
                 status_class = "status-not-found"
                 status_text = "Not Found"
             
-            # Convert service_data to JSON string for data attribute
-            service_data_json = json.dumps(service_data).replace('"', '&quot;') if service_data else 'null'
+            # Convert service_data to JSON string for data attribute, but fix screenshot paths
+            if service_data and service_data.get('screenshot_path'):
+                # Create a copy of service_data to modify the screenshot path
+                service_data_for_json = service_data.copy()
+                # Convert absolute screenshot path to relative path from report directory
+                service_data_for_json['screenshot_path'] = os.path.relpath(service_data['screenshot_path'], report_dir)
+                service_data_json = json.dumps(service_data_for_json).replace('"', '&quot;')
+            else:
+                service_data_json = json.dumps(service_data).replace('"', '&quot;') if service_data else 'null'
             
             html_template += f"""
             <div class="service-card" data-service="{service_data_json}">
