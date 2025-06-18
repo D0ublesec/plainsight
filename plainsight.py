@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 import time
 import json
 import sys
@@ -27,6 +27,8 @@ from bs4 import BeautifulSoup
 import warnings
 import select
 import pytz
+import platform
+import subprocess
 
 # Import msvcrt only on Windows
 if os.name == 'nt':
@@ -90,7 +92,7 @@ def setup_logging(output_dir, verbose_level):
 
 def print_banner():
     """Print an ASCII banner."""
-    banner = """
+    banner = r"""
     _ (`-.              ('-.                  .-') _   .-')                         ('-. .-. .-') _
    ( (OO  )            ( OO ).-.             ( OO ) ) ( OO ).                      ( OO )  /(  OO) )
   _.`     \ ,--.       / . --. /  ,-.-') ,--./ ,--,' (_)---\_)  ,-.-')   ,----.    ,--. ,--./     '._
@@ -191,6 +193,82 @@ def load_definitions():
     
     return definitions
 
+def find_system_chromedriver():
+    """Find existing ChromeDriver in system PATH or common locations."""
+    
+    # Common ChromeDriver locations
+    chromedriver_paths = [
+        '/usr/bin/chromedriver',
+        '/usr/local/bin/chromedriver',
+        '/snap/bin/chromedriver',
+        '/opt/chromedriver/chromedriver',
+        '/usr/lib/chromium-browser/chromedriver',
+        '/usr/lib/chromium/chromedriver'
+    ]
+    
+    # Check if chromedriver is in PATH
+    try:
+        result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            if os.path.exists(path):
+                print(f"{Colors.GREEN}[+] Found system ChromeDriver at: {path}{Colors.RESET}")
+                return path
+    except Exception:
+        pass
+    
+    # Check common locations
+    for path in chromedriver_paths:
+        if os.path.exists(path):
+            print(f"{Colors.GREEN}[+] Found system ChromeDriver at: {path}{Colors.RESET}")
+            return path
+    
+    return None
+
+def find_chromium_chromedriver():
+    """Find ChromeDriver that comes bundled with Chromium."""
+    import subprocess
+    
+    # Common Chromium ChromeDriver locations
+    chromium_chromedriver_paths = [
+        '/usr/lib/chromium-browser/chromedriver',
+        '/usr/lib/chromium/chromedriver',
+        '/usr/bin/chromedriver',
+        '/snap/chromium/current/usr/lib/chromium-browser/chromedriver',
+        '/opt/chromium/chromedriver'
+    ]
+    
+    # Check if chromedriver is in PATH and works with Chromium
+    try:
+        result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            if os.path.exists(path):
+                # Test if this ChromeDriver works
+                try:
+                    test_result = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=5)
+                    if test_result.returncode == 0:
+                        print(f"{Colors.GREEN}[+] Found working ChromeDriver at: {path}{Colors.RESET}")
+                        return path
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    
+    # Check common Chromium ChromeDriver locations
+    for path in chromium_chromedriver_paths:
+        if os.path.exists(path):
+            try:
+                # Test if this ChromeDriver works
+                test_result = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=5)
+                if test_result.returncode == 0:
+                    print(f"{Colors.GREEN}[+] Found working ChromeDriver at: {path}{Colors.RESET}")
+                    return path
+            except Exception:
+                continue
+    
+    return None
+
 def setup_webdriver():
     """Setup and return a configured Chrome WebDriver."""
     chrome_options = Options()
@@ -198,10 +276,100 @@ def setup_webdriver():
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--window-size=1920,1080')
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-plugins')
+    chrome_options.add_argument('--disable-images')
+    chrome_options.add_argument('--disable-javascript')
+    chrome_options.add_argument('--disable-web-security')
+    chrome_options.add_argument('--allow-running-insecure-content')
+    chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+    
+    # First, try to find existing system ChromeDriver
+    system_chromedriver = find_system_chromedriver()
+    if system_chromedriver:
+        try:
+            return webdriver.Chrome(service=Service(system_chromedriver), options=chrome_options)
+        except Exception as e:
+            print(f"{Colors.YELLOW}[!] System ChromeDriver failed: {str(e)}{Colors.RESET}")
+    
+    # Try to find ChromeDriver bundled with Chromium
+    chromium_chromedriver = find_chromium_chromedriver()
+    if chromium_chromedriver:
+        try:
+            return webdriver.Chrome(service=Service(chromium_chromedriver), options=chrome_options)
+        except Exception as e:
+            print(f"{Colors.YELLOW}[!] Chromium ChromeDriver failed: {str(e)}{Colors.RESET}")
+    
+    # Try to use ChromeDriverManager (this might work on some systems)
+    try:
+        return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    except Exception as e:
+        print(f"{Colors.YELLOW}[!] ChromeDriverManager failed: {str(e)}{Colors.RESET}")
+    
+    # Detect system architecture
+    arch = platform.machine()
+    print(f"{Colors.CYAN}[*] Detected architecture: {arch}{Colors.RESET}")
+    
+    # Provide clear installation instructions instead of trying to download
+    print(f"{Colors.RED}[-] ChromeDriver not found. Please install it using one of these methods:{Colors.RESET}")
+    print()
+    
+    if os.path.exists('/etc/debian_version'):
+        print(f"{Colors.YELLOW}[!] For Kali Linux/Debian/Ubuntu:{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo apt update && sudo apt install chromium-chromedriver{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo apt update && sudo apt install chromium-driver{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo apt update && sudo apt install google-chrome-stable{Colors.RESET}")
+        print()
+    elif os.path.exists('/etc/redhat-release'):
+        print(f"{Colors.YELLOW}[!] For CentOS/RHEL/Fedora:{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo yum install chromedriver{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo dnf install chromedriver{Colors.RESET}")
+        print()
+    elif os.path.exists('/etc/arch-release'):
+        print(f"{Colors.YELLOW}[!] For Arch Linux:{Colors.RESET}")
+        print(f"{Colors.CYAN}   sudo pacman -S chromedriver{Colors.RESET}")
+        print()
+    
+    print(f"{Colors.YELLOW}[!] Manual installation:{Colors.RESET}")
+    print(f"{Colors.CYAN}   Download from: https://chromedriver.chromium.org/{Colors.RESET}")
+    print(f"{Colors.CYAN}   Extract and add to PATH or place in /usr/local/bin/{Colors.RESET}")
+    print()
+    
+    # Check if Chrome/Chromium is installed
+    chrome_paths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/snap/bin/chromium',
+        '/usr/bin/google-chrome-stable',
+        '/opt/google/chrome/chrome'
+    ]
+    
+    chrome_found = False
+    for path in chrome_paths:
+        if os.path.exists(path):
+            chrome_found = True
+            print(f"{Colors.GREEN}[+] Found Chrome/Chromium at: {path}{Colors.RESET}")
+            break
+    
+    if not chrome_found:
+        print(f"{Colors.RED}[-] Chrome/Chromium not found. Please install it first:{Colors.RESET}")
+        if os.path.exists('/etc/debian_version'):
+            print(f"{Colors.CYAN}   sudo apt update && sudo apt install chromium{Colors.RESET}")
+        print()
+    
+    print(f"{Colors.YELLOW}[!] After installing ChromeDriver, run the script again.{Colors.RESET}")
+    print(f"{Colors.YELLOW}[!] Running in limited mode without screenshots for now.{Colors.RESET}")
+    
+    # Return None to indicate failure
+    return None
 
 def take_screenshot(driver, url, output_dir, filename):
     """Take a screenshot of the webpage."""
+    if driver is None:
+        return None
+    
     try:
         driver.get(url)
         time.sleep(2)  # Wait for page to load
@@ -214,6 +382,9 @@ def take_screenshot(driver, url, output_dir, filename):
 
 def extract_logo(url, driver, output_dir):
     """Extract company logo from the website or Clearbit."""
+    if driver is None:
+        return None
+    
     try:
         # First try Clearbit
         domain = urlparse(url).netloc
@@ -304,12 +475,17 @@ def check_dns_records(domain, logger, verbose_level, pretty_output=True):
     
     record_types = ['A', 'AAAA', 'MX', 'TXT', 'CNAME']
     
+    # Configure DNS resolver with shorter timeouts
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 2.0  # 2 seconds timeout
+    resolver.lifetime = 3.0  # 3 seconds total lifetime
+    
     for record_type in record_types:
         try:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.ORANGE}[*] Checking {record_type} records for {domain}{Colors.RESET}")
             
-            answers = dns.resolver.resolve(domain, record_type)
+            answers = resolver.resolve(domain, record_type)
             records = [str(answer) for answer in answers]
             dns_results[record_type] = records
             
@@ -320,32 +496,41 @@ def check_dns_records(domain, logger, verbose_level, pretty_output=True):
         except dns.resolver.NoAnswer:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.YELLOW}[!] No {record_type} records found for {domain}{Colors.RESET}")
+        except dns.resolver.Timeout:
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.RED}[-] Timeout checking {record_type} records for {domain}{Colors.RESET}")
         except Exception as e:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] Error checking {record_type} records: {str(e)}{Colors.RESET}")
     
     # Check SPF record
     try:
-        spf_records = dns.resolver.resolve(domain, 'TXT')
+        spf_records = resolver.resolve(domain, 'TXT')
         for record in spf_records:
             if 'v=spf1' in str(record):
                 dns_results['SPF'].append(str(record))
                 if verbose_level >= 1 and pretty_output:
                     print(f"{Colors.CYAN}[~] SPF Record: {record}{Colors.RESET}")
-    except Exception:
+    except (dns.resolver.NoAnswer, dns.resolver.Timeout):
         pass
+    except Exception as e:
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.RED}[-] Error checking SPF record: {str(e)}{Colors.RESET}")
     
     # Check DMARC record
     try:
         dmarc_domain = f'_dmarc.{domain}'
-        dmarc_records = dns.resolver.resolve(dmarc_domain, 'TXT')
+        dmarc_records = resolver.resolve(dmarc_domain, 'TXT')
         for record in dmarc_records:
             if 'v=DMARC1' in str(record):
                 dns_results['DMARC'].append(str(record))
                 if verbose_level >= 1 and pretty_output:
                     print(f"{Colors.CYAN}[~] DMARC Record: {record}{Colors.RESET}")
-    except Exception:
+    except (dns.resolver.NoAnswer, dns.resolver.Timeout):
         pass
+    except Exception as e:
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.RED}[-] Error checking DMARC record: {str(e)}{Colors.RESET}")
     
     return dns_results
 
@@ -354,9 +539,14 @@ def check_dns_txt(domain, definitions, logger, verbose_level, pretty_output=True
     if verbose_level >= 1 and pretty_output:
         print(f"{Colors.ORANGE}[*] Checking DNS TXT records for service indicators{Colors.RESET}")
     
+    # Configure DNS resolver with shorter timeouts
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 2.0  # 2 seconds timeout
+    resolver.lifetime = 3.0  # 3 seconds total lifetime
+    
     try:
         # Get all TXT records
-        txt_records = dns.resolver.resolve(domain, 'TXT')
+        txt_records = resolver.resolve(domain, 'TXT')
         
         if verbose_level >= 1 and pretty_output:
             print(f"{Colors.CYAN}[~] Found {len(txt_records)} TXT records{Colors.RESET}")
@@ -394,6 +584,11 @@ def check_dns_txt(domain, definitions, logger, verbose_level, pretty_output=True
         if verbose_level >= 1 and pretty_output:
             print(f"{Colors.YELLOW}[!] No TXT records found for {domain}{Colors.RESET}")
         return []
+    except dns.resolver.Timeout:
+        if verbose_level >= 1 and pretty_output:
+            print(f"{Colors.RED}[-] Timeout checking TXT records for {domain}{Colors.RESET}")
+        logger.error(f"Timeout checking TXT records for {domain}")
+        return []
     except dns.resolver.NXDOMAIN:
         if verbose_level >= 1 and pretty_output:
             print(f"{Colors.RED}[-] Domain {domain} does not exist{Colors.RESET}")
@@ -404,16 +599,26 @@ def check_dns_txt(domain, definitions, logger, verbose_level, pretty_output=True
         logger.error(f"Error checking TXT records: {str(e)}")
         return []
 
+# Global flag for user interruption
+user_interrupted = False
+
 def check_for_enter():
     """Check if Enter key is pressed."""
-    if os.name == 'nt':  # Windows
-        return msvcrt.kbhit() and msvcrt.getch() == b'\r'
-    else:  # Unix-like
-        rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-        if rlist:
-            line = sys.stdin.readline()
-            return line.strip() == ''
-        return False
+    global user_interrupted
+    return user_interrupted
+
+def input_listener():
+    """Background thread to listen for user input."""
+    global user_interrupted
+    try:
+        # This will block until user presses Enter
+        input()
+        user_interrupted = True
+        print(f"\n{Colors.YELLOW}[!] User requested to stop the scan. Saving current results...{Colors.RESET}")
+    except (EOFError, KeyboardInterrupt):
+        # Handle Ctrl+C or EOF
+        user_interrupted = True
+        print(f"\n{Colors.YELLOW}[!] Scan interrupted. Saving current results...{Colors.RESET}")
 
 def is_same_domain(url1, url2):
     """Check if two URLs have the same domain."""
@@ -448,7 +653,7 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
     }
     
     try:
-        response = requests.get(url, timeout=10, allow_redirects=True, headers=headers)
+        response = requests.get(url, timeout=5, allow_redirects=True, headers=headers)
         
         if verbose_level >= 2 and pretty_output:
             print(f"{Colors.CYAN}[~] Request Headers: {dict(response.request.headers)}{Colors.RESET}")
@@ -479,7 +684,7 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
                     'url': url,
                     'status': response.status_code,
                     'headers': dict(response.headers),
-                    'screenshot_path': take_screenshot(driver, url, output_dir, f"screenshot_{domain}_{service}") if redirect_url else None,
+                    'screenshot_path': take_screenshot(driver, url, output_dir, f"screenshot_{domain}_{service}") if redirect_url and driver else None,
                     'redirect_url': redirect_url,
                     'response_body': response.text[:5000]  # Include first 5000 characters of response body
                 }
@@ -575,7 +780,7 @@ def check_service(domain, service, output_dir, driver, logger, verbose_level, pr
                 f.write(response.text)
             
             # Take screenshot with domain and service name
-            screenshot_path = take_screenshot(driver, url, service_dir, f"screenshot_{safe_domain}_{service_name}")
+            screenshot_path = take_screenshot(driver, url, service_dir, f"screenshot_{safe_domain}_{service_name}") if driver else None
             
             return {
                 'url': url,
@@ -647,13 +852,21 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
         }
     }
 
+    # Configure DNS resolver with shorter timeouts
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 2.0  # 2 seconds timeout
+    resolver.lifetime = 3.0  # 3 seconds total lifetime
+
     try:
         # Check DNSSEC
         try:
-            dnssec = dns.resolver.resolve(domain, 'DNSKEY')
+            dnssec = resolver.resolve(domain, 'DNSKEY')
             security_results['dnssec'] = True
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.GREEN}[+] DNSSEC is enabled for {domain}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.YELLOW}[!] DNSSEC is not enabled for {domain}{Colors.RESET}")
         except Exception as e:
             security_results['dnssec_errors'].append(str(e))
             if verbose_level >= 1 and pretty_output:
@@ -661,7 +874,7 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
 
         # Check for DNS takeover opportunities
         try:
-            cname_records = dns.resolver.resolve(domain, 'CNAME')
+            cname_records = resolver.resolve(domain, 'CNAME')
             for record in cname_records:
                 target = str(record.target)
                 if any(provider in target.lower() for provider in ['github.io', 'herokuapp.com', 'azurewebsites.net', 'cloudfront.net']):
@@ -672,12 +885,14 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
                     })
                     if verbose_level >= 1 and pretty_output:
                         print(f"{Colors.RED}[-] Potential DNS takeover risk: CNAME pointing to {target}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            pass
         except Exception:
             pass
 
         # Check SPF record
         try:
-            txt_records = dns.resolver.resolve(domain, 'TXT')
+            txt_records = resolver.resolve(domain, 'TXT')
             spf_found = False
             for record in txt_records:
                 record_str = str(record)
@@ -700,6 +915,9 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
             
             if not spf_found and verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] No SPF record found{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.RED}[-] No SPF record found{Colors.RESET}")
         except Exception as e:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] Error checking SPF record: {str(e)}{Colors.RESET}")
@@ -707,13 +925,16 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
         # Check DKIM record
         try:
             dkim_domain = f'default._domainkey.{domain}'
-            dkim_records = dns.resolver.resolve(dkim_domain, 'TXT')
+            dkim_records = resolver.resolve(dkim_domain, 'TXT')
             for record in dkim_records:
                 if 'v=DKIM1' in str(record):
                     security_results['email_security']['dkim']['exists'] = True
                     security_results['email_security']['dkim']['record'] = str(record)
                     if verbose_level >= 1 and pretty_output:
                         print(f"{Colors.GREEN}[+] DKIM record found: {record}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.RED}[-] No DKIM record found{Colors.RESET}")
         except Exception:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] No DKIM record found{Colors.RESET}")
@@ -721,7 +942,7 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
         # Check DMARC record
         try:
             dmarc_domain = f'_dmarc.{domain}'
-            dmarc_records = dns.resolver.resolve(dmarc_domain, 'TXT')
+            dmarc_records = resolver.resolve(dmarc_domain, 'TXT')
             for record in dmarc_records:
                 if 'v=DMARC1' in str(record):
                     security_results['email_security']['dmarc']['exists'] = True
@@ -740,13 +961,16 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
                         print(f"{Colors.GREEN}[+] DMARC record found: {record}{Colors.RESET}")
                         for issue in security_results['email_security']['dmarc']['issues']:
                             print(f"{Colors.YELLOW}[!] DMARC issue: {issue}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.RED}[-] No DMARC record found{Colors.RESET}")
         except Exception:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] No DMARC record found{Colors.RESET}")
 
         # Check for email service providers
         try:
-            mx_records = dns.resolver.resolve(domain, 'MX')
+            mx_records = resolver.resolve(domain, 'MX')
             for record in mx_records:
                 mx_target = str(record.exchange).lower()
                 security_results['email_security']['email_providers'].append(mx_target)
@@ -768,6 +992,9 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
                 
                 if provider and verbose_level >= 1 and pretty_output:
                     print(f"{Colors.GREEN}[+] Email provider detected: {provider}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            if verbose_level >= 1 and pretty_output:
+                print(f"{Colors.RED}[-] No MX records found{Colors.RESET}")
         except Exception as e:
             if verbose_level >= 1 and pretty_output:
                 print(f"{Colors.RED}[-] No MX records found{Colors.RESET}")
@@ -775,11 +1002,11 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
         # Check for DNS misconfigurations
         try:
             # Check for dangling CNAME records
-            cname_records = dns.resolver.resolve(domain, 'CNAME')
+            cname_records = resolver.resolve(domain, 'CNAME')
             for record in cname_records:
                 target = str(record.target)
                 try:
-                    dns.resolver.resolve(target, 'A')
+                    resolver.resolve(target, 'A')
                 except Exception:
                     security_results['dns_misconfigurations'].append({
                         'type': 'CNAME',
@@ -787,13 +1014,15 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
                     })
                     if verbose_level >= 1 and pretty_output:
                         print(f"{Colors.RED}[-] DNS misconfiguration: Dangling CNAME record pointing to {target}{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            pass
         except Exception:
             pass
 
         # Check for conflicting records
         try:
-            a_records = dns.resolver.resolve(domain, 'A')
-            cname_records = dns.resolver.resolve(domain, 'CNAME')
+            a_records = resolver.resolve(domain, 'A')
+            cname_records = resolver.resolve(domain, 'CNAME')
             if len(a_records) > 0 and len(cname_records) > 0:
                 security_results['dns_misconfigurations'].append({
                     'type': 'Record Conflict',
@@ -801,6 +1030,8 @@ def check_dns_security(domain, logger, verbose_level, pretty_output=True):
                 })
                 if verbose_level >= 1 and pretty_output:
                     print(f"{Colors.RED}[-] DNS misconfiguration: Domain has both A and CNAME records{Colors.RESET}")
+        except (dns.resolver.NoAnswer, dns.resolver.Timeout):
+            pass
         except Exception:
             pass
 
@@ -815,7 +1046,7 @@ def get_company_logo(domain, output_dir, pretty_output=True):
     """Get the main company logo from Clearbit."""
     try:
         clearbit_url = f"https://logo.clearbit.com/{domain}"
-        response = requests.get(clearbit_url, timeout=10)
+        response = requests.get(clearbit_url, timeout=5)
         
         if response.status_code == 200:
             # Save logo to file
@@ -2091,14 +2322,34 @@ def main():
     
     # Setup WebDriver
     driver = setup_webdriver()
+    
+    # Check if WebDriver setup failed
+    if driver is None:
+        print(f"{Colors.YELLOW}[!] Running in limited mode without screenshots{Colors.RESET}")
+        print(f"{Colors.YELLOW}[!] Some features like logo extraction and screenshots will be disabled{Colors.RESET}")
+        screenshot_mode = False
+    else:
+        screenshot_mode = True
 
     # Store all results for combined output
     all_results = []
     
+    # Start input listener thread for user interruption
+    input_thread = threading.Thread(target=input_listener, daemon=True)
+    input_thread.start()
+    
     try:
-        print(f"\n{Colors.YELLOW}[!] Press Enter at any time to cancel the scan and save current results{Colors.RESET}\n")
+        print(f"\n{Colors.YELLOW}[!] Press Enter at any time to cancel the scan and save current results{Colors.RESET}")
+        print(f"{Colors.YELLOW}[!] Or press Ctrl+C to interrupt immediately{Colors.RESET}\n")
 
         for domain in domains:
+            # Check for user interruption before starting each domain
+            if check_for_enter():
+                if not args.no_pretty:
+                    console.print(f"\n[yellow][!] Scan cancelled by user[/yellow]")
+                save_current_results(all_results, base_output_dir, not args.no_pretty)
+                return
+            
             if not args.no_pretty:
                 console.print(f"\n[bold cyan]╔════════════════════════════════════════════════════════════════════════════╗[/bold cyan]")
                 console.print(f"[bold cyan]║[/bold cyan] [bold yellow]Scanning Domain:[/bold yellow] {domain:<50} [bold cyan]║[/bold cyan]")
@@ -2176,7 +2427,7 @@ def main():
             # Check services
             status_queue.put(f"Checking services for {domain}")
             for service in definitions['services']:
-                # Check for Enter key press
+                # Check for user interruption
                 if check_for_enter():
                     if not args.no_pretty:
                         console.print(f"\n[yellow][!] Scan cancelled by user[/yellow]")
@@ -2230,10 +2481,12 @@ def main():
         save_current_results(all_results, base_output_dir, not args.no_pretty)
     except KeyboardInterrupt:
         if not args.no_pretty:
-            print(f"\n{Colors.YELLOW}[!] Scan interrupted by user{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}[!] Scan interrupted by user (Ctrl+C){Colors.RESET}")
+        save_current_results(all_results, base_output_dir, not args.no_pretty)
         sys.exit(1)
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
 
 if __name__ == '__main__':
     main()
