@@ -13,6 +13,20 @@ A HTML report is generated that you can view locally to quickly review the disco
 
 ![plainsight_web_report_hd](https://github.com/user-attachments/assets/e7c47b84-4e06-4993-a648-2f0c4381feae)
 
+## Install
+1. Clone Repo
+   ```
+   git clone https://github.com/D0ublesec/plainsight.git
+   ```
+3. Install python requirements with pip
+   ```
+   pip install -r ./plainsight/requirements.txt
+   ```
+4. On Kali, ensure Chromium and its driver are installed
+   ```
+   sudo apt install chromium chromium-driver
+   ```
+
 ## Help
 ``` bash
 usage: plainsight.py [-h] [-f FILE] [-v] [-o OUTPUT] [--no-banner] [--no-pretty] [-t THREADS] [domains ...]
