@@ -690,9 +690,23 @@ func checkDNSRecords(domain string, verboseLevel int, prettyOutput bool) DNSResu
 					if verboseLevel >= 1 && prettyOutput {
 						cyan.Printf("[~] %s Record: %s\n", rt.Name, txtStr)
 					}
-					// Check for SPF (only if it starts with v=spf1)
-					if strings.HasPrefix(strings.TrimSpace(txtStr), "v=spf1") {
-						results.SPF = append(results.SPF, txtStr)
+					// Check for SPF (case-insensitive, handle whitespace and quotes)
+					txtStrClean := strings.Trim(strings.TrimSpace(txtStr), `"'`)
+					txtStrLower := strings.ToLower(txtStrClean)
+					if strings.HasPrefix(txtStrLower, "v=spf1") {
+						results.SPF = append(results.SPF, txtStrClean)
+					} else if strings.Contains(txtStrLower, "v=spf1") {
+						// SPF might be embedded in the record
+						idx := strings.Index(txtStrLower, "v=spf1")
+						if idx >= 0 {
+							potentialSPF := txtStrClean[idx:]
+							// Validate it looks like an SPF record
+							if strings.Contains(strings.ToLower(potentialSPF), "include:") ||
+								strings.Contains(strings.ToLower(potentialSPF), "mx") ||
+								strings.Contains(strings.ToLower(potentialSPF), "all") {
+								results.SPF = append(results.SPF, potentialSPF)
+							}
+						}
 					}
 				}
 			case dns.TypeCNAME:
@@ -1145,62 +1159,271 @@ func checkDNSSecurity(domain string, verboseLevel int, prettyOutput bool) map[st
 		}
 	}
 
-	// Check SPF record - only check domain's TXT records, not subdomains
+	// Check SPF record - check domain's TXT records and parent domains
 	m = new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeTXT)
+	// Enable EDNS0 to handle larger DNS responses (SPF records can be long)
+	m.SetEdns0(4096, true)
 
 	r, _, err = client.Exchange(m, "8.8.8.8:53")
 	spfFound := false
+	var spfRecord string
+	var allTxtRecords []string
+	
+	// Check if response was truncated
+	if err == nil && r.Truncated {
+		if verboseLevel >= 1 && prettyOutput {
+			yellow.Printf("[!] DNS response was truncated, retrying with TCP\n")
+		}
+		// Retry with TCP for truncated responses
+		clientTCP := &dns.Client{Net: "tcp", Timeout: 5 * time.Second}
+		r, _, err = clientTCP.Exchange(m, "8.8.8.8:53")
+	}
+	
 	if err == nil && r.Rcode == dns.RcodeSuccess {
-		for _, answer := range r.Answer {
+		if verboseLevel >= 1 && prettyOutput {
+			cyan.Printf("[~] Checking TXT records for SPF on %s (found %d answer(s))\n", domain, len(r.Answer))
+		}
+		// Collect all TXT records first, then check for SPF
+		// SPF records can span multiple TXT record entries in DNS
+		var allTxtStrings []string
+		for i, answer := range r.Answer {
 			if txt, ok := answer.(*dns.TXT); ok {
+				// Join all TXT record parts (SPF records can be split across multiple strings within one TXT record)
 				txtStr := strings.Join(txt.Txt, "")
-				// Only check for SPF records that start with v=spf1 (not just contain it)
-				if strings.HasPrefix(strings.TrimSpace(txtStr), "v=spf1") {
-					spfFound = true
-					spfMap := securityResults["email_security"].(map[string]interface{})["spf"].(map[string]interface{})
-					spfMap["exists"] = true
-					spfMap["record"] = txtStr
-
-					// Analyze SPF record
-					issues := []string{}
-					thirdParties := []string{}
-
-					if !strings.Contains(txtStr, "all") {
-						issues = append(issues, "Missing \"all\" mechanism")
-					}
-					if strings.Contains(txtStr, "~all") {
-						issues = append(issues, "Using soft fail (~all) instead of hard fail (-all)")
-					}
-
-					// Extract third-party references
-					spfParts := strings.Fields(txtStr)
-					for _, part := range spfParts {
-						if strings.HasPrefix(part, "include:") {
-							thirdParty := strings.TrimPrefix(part, "include:")
-							thirdParties = append(thirdParties, thirdParty)
-						} else if strings.HasPrefix(part, "redirect=") {
-							thirdParty := strings.TrimPrefix(part, "redirect=")
-							thirdParties = append(thirdParties, thirdParty)
-						}
-					}
-
-					spfMap["issues"] = issues
-					spfMap["third_parties"] = thirdParties
-
-					if verboseLevel >= 1 && prettyOutput {
-						green.Printf("[+] SPF record found: %s\n", txtStr)
-						if len(issues) > 0 {
-							for _, issue := range issues {
-								yellow.Printf("[!] SPF issue: %s\n", issue)
-							}
-						}
-						if len(thirdParties) > 0 {
-							cyan.Printf("[~] SPF third-party references: %s\n", strings.Join(thirdParties, ", "))
-						}
-					}
-					break
+				txtStrTrimmed := strings.TrimSpace(txtStr)
+				allTxtStrings = append(allTxtStrings, txtStrTrimmed)
+				allTxtRecords = append(allTxtRecords, txtStrTrimmed)
+				
+				if verboseLevel >= 1 && prettyOutput {
+					cyan.Printf("[~] TXT record[%d]: %s\n", i+1, txtStrTrimmed)
 				}
+			}
+		}
+		
+		if verboseLevel >= 1 && prettyOutput {
+			cyan.Printf("[~] Total TXT records found: %d\n", len(allTxtStrings))
+		}
+		
+		// Check each TXT record for SPF
+		for i, txtStrTrimmed := range allTxtStrings {
+			// Remove quotes if present (some DNS responses include quotes)
+			txtStrClean := strings.Trim(txtStrTrimmed, `"'`)
+			// Normalize whitespace
+			txtStrClean = strings.TrimSpace(txtStrClean)
+			txtStrLower := strings.ToLower(txtStrClean)
+			
+			if verboseLevel >= 2 && prettyOutput {
+				preview := txtStrClean
+				if len(preview) > 80 {
+					preview = preview[:80] + "..."
+				}
+				cyan.Printf("[~] Checking TXT[%d] for SPF: %s\n", i+1, preview)
+			}
+			
+			// Check for SPF records that start with v=spf1 (case-insensitive)
+			if strings.HasPrefix(txtStrLower, "v=spf1") {
+				spfFound = true
+				spfRecord = txtStrClean
+				if verboseLevel >= 1 && prettyOutput {
+					green.Printf("[+] Found SPF record in TXT[%d]: %s\n", i+1, spfRecord)
+				}
+				break
+			}
+			
+			// Also check if "v=spf1" appears anywhere in the record (in case of formatting issues)
+			if strings.Contains(txtStrLower, "v=spf1") {
+				// Extract the SPF part - find where v=spf1 starts
+				idx := strings.Index(txtStrLower, "v=spf1")
+				if idx >= 0 {
+					// Try to extract the full SPF record
+					// SPF records typically end with "all" or similar, but can be long
+					// For now, take from v=spf1 to the end, or until we hit a non-SPF character pattern
+					potentialSPF := txtStrClean[idx:]
+					// Check if it looks like a valid SPF record
+					if strings.Contains(strings.ToLower(potentialSPF), "include:") ||
+						strings.Contains(strings.ToLower(potentialSPF), "mx") ||
+						strings.Contains(strings.ToLower(potentialSPF), "a:") ||
+						strings.Contains(strings.ToLower(potentialSPF), "ip4:") ||
+						strings.Contains(strings.ToLower(potentialSPF), "ip6:") ||
+						strings.Contains(strings.ToLower(potentialSPF), "all") {
+						spfFound = true
+						spfRecord = potentialSPF
+						if verboseLevel >= 1 && prettyOutput {
+							green.Printf("[+] Found SPF record (embedded in TXT[%d]): %s\n", i+1, spfRecord)
+						}
+						break
+					}
+				}
+			}
+		}
+		
+		// If still not found, try combining all TXT records (SPF might span multiple TXT records)
+		if !spfFound && len(allTxtStrings) > 1 {
+			combinedTxt := strings.Join(allTxtStrings, "")
+			combinedLower := strings.ToLower(combinedTxt)
+			if strings.Contains(combinedLower, "v=spf1") {
+				idx := strings.Index(combinedLower, "v=spf1")
+				potentialSPF := combinedTxt[idx:]
+				// Validate it's a real SPF record
+				if strings.Contains(combinedLower[idx:], "include:") ||
+					strings.Contains(combinedLower[idx:], "mx") ||
+					strings.Contains(combinedLower[idx:], "all") {
+					spfFound = true
+					spfRecord = potentialSPF
+					if verboseLevel >= 1 && prettyOutput {
+						green.Printf("[+] Found SPF record (spanning multiple TXT records): %s\n", spfRecord)
+					}
+				}
+			}
+		}
+	} else if err != nil {
+		if verboseLevel >= 1 && prettyOutput {
+			yellow.Printf("[!] Error querying TXT records for SPF: %v\n", err)
+		}
+	}
+
+	// If no SPF found on domain, check parent domain (some domains inherit SPF from parent)
+	if !spfFound {
+		parts := strings.Split(domain, ".")
+		if len(parts) > 2 {
+			parentDomain := strings.Join(parts[1:], ".")
+			if verboseLevel >= 2 && prettyOutput {
+				cyan.Printf("[~] No SPF found on %s, checking parent domain %s\n", domain, parentDomain)
+			}
+			
+			m = new(dns.Msg)
+			m.SetQuestion(dns.Fqdn(parentDomain), dns.TypeTXT)
+			r, _, err = client.Exchange(m, "8.8.8.8:53")
+			if err == nil && r.Rcode == dns.RcodeSuccess {
+				for _, answer := range r.Answer {
+					if txt, ok := answer.(*dns.TXT); ok {
+						txtStr := strings.Join(txt.Txt, "")
+						txtStrTrimmed := strings.TrimSpace(txtStr)
+						txtStrLower := strings.ToLower(txtStrTrimmed)
+						
+						if strings.HasPrefix(txtStrLower, "v=spf1") {
+							spfFound = true
+							spfRecord = txtStrTrimmed
+							if verboseLevel >= 1 && prettyOutput {
+								green.Printf("[+] Found SPF record on parent domain %s: %s\n", parentDomain, spfRecord)
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If still no SPF found, check if MX records point to email providers
+	// Some tools (like mxtoolbox) may infer SPF protection from MX records pointing to email providers
+	if !spfFound {
+		mxMsg := new(dns.Msg)
+		mxMsg.SetQuestion(dns.Fqdn(domain), dns.TypeMX)
+		mxResp, _, mxErr := client.Exchange(mxMsg, "8.8.8.8:53")
+		if mxErr == nil && mxResp.Rcode == dns.RcodeSuccess && len(mxResp.Answer) > 0 {
+			// Check if MX records point to known email providers
+			emailProvidersWithSPF := map[string]string{
+				"google.com":      "Google Workspace",
+				"googlemail.com":  "Google Workspace",
+				"outlook.com":     "Microsoft 365",
+				"office365.com":   "Microsoft 365",
+				"microsoft.com":   "Microsoft 365",
+				"zoho.com":        "Zoho Mail",
+				"amazonses.com":   "Amazon SES",
+				"sendgrid.net":    "SendGrid",
+				"mailgun.org":     "Mailgun",
+				"mailgun.com":     "Mailgun",
+				"postmarkapp.com": "Postmark",
+				"sparkpostmail.com": "SparkPost",
+			}
+			
+			var detectedProviders []string
+			for _, answer := range mxResp.Answer {
+				if mx, ok := answer.(*dns.MX); ok {
+					mxHost := strings.ToLower(mx.Mx)
+					for providerKey, providerName := range emailProvidersWithSPF {
+						if strings.Contains(mxHost, providerKey) {
+							detectedProviders = append(detectedProviders, providerName)
+							break
+						}
+					}
+				}
+			}
+			
+			if len(detectedProviders) > 0 {
+				spfMap := securityResults["email_security"].(map[string]interface{})["spf"].(map[string]interface{})
+				spfMap["note"] = fmt.Sprintf("No explicit SPF TXT record found, but MX records point to: %s. Some tools may infer SPF protection from email provider infrastructure.", strings.Join(detectedProviders, ", "))
+				if verboseLevel >= 1 && prettyOutput {
+					yellow.Printf("[!] No SPF TXT record found, but MX records point to: %s\n", strings.Join(detectedProviders, ", "))
+					yellow.Printf("[!] Note: Some tools (like mxtoolbox) may show SPF as 'enabled' based on email provider,\n")
+					yellow.Printf("[!]       but RFC 7208 requires an explicit SPF TXT record for proper SPF protection.\n")
+				}
+			}
+		}
+	}
+
+	// Log all TXT records found for debugging (already logged above, but summarize here)
+	if verboseLevel >= 2 && prettyOutput && len(allTxtRecords) > 0 {
+		cyan.Printf("[~] Summary: Found %d TXT record(s) for %s\n", len(allTxtRecords), domain)
+		for i, txt := range allTxtRecords {
+			// Truncate very long records for summary
+			displayTxt := txt
+			if len(displayTxt) > 100 {
+				displayTxt = displayTxt[:100] + "..."
+			}
+			cyan.Printf("[~]   TXT[%d]: %s\n", i+1, displayTxt)
+		}
+	}
+
+	// If SPF record found, analyze it
+	if spfFound && spfRecord != "" {
+		spfMap := securityResults["email_security"].(map[string]interface{})["spf"].(map[string]interface{})
+		spfMap["exists"] = true
+		spfMap["record"] = spfRecord
+
+		// Analyze SPF record
+		issues := []string{}
+		thirdParties := []string{}
+
+		spfRecordLower := strings.ToLower(spfRecord)
+		if !strings.Contains(spfRecordLower, "all") && !strings.Contains(spfRecordLower, "redirect=") {
+			issues = append(issues, "Missing \"all\" mechanism or redirect")
+		}
+		if strings.Contains(spfRecordLower, "~all") {
+			issues = append(issues, "Using soft fail (~all) instead of hard fail (-all)")
+		}
+
+		// Extract third-party references (case-insensitive)
+		spfParts := strings.Fields(spfRecord)
+		for _, part := range spfParts {
+			partLower := strings.ToLower(part)
+			if strings.HasPrefix(partLower, "include:") {
+				thirdParty := strings.TrimPrefix(part, "include:")
+				thirdParty = strings.TrimPrefix(thirdParty, "Include:")
+				thirdParty = strings.TrimPrefix(thirdParty, "INCLUDE:")
+				thirdParties = append(thirdParties, strings.TrimSpace(thirdParty))
+			} else if strings.HasPrefix(partLower, "redirect=") {
+				thirdParty := strings.TrimPrefix(part, "redirect=")
+				thirdParty = strings.TrimPrefix(thirdParty, "Redirect=")
+				thirdParty = strings.TrimPrefix(thirdParty, "REDIRECT=")
+				thirdParties = append(thirdParties, strings.TrimSpace(thirdParty))
+			}
+		}
+
+		spfMap["issues"] = issues
+		spfMap["third_parties"] = thirdParties
+
+		if verboseLevel >= 1 && prettyOutput {
+			green.Printf("[+] SPF record found: %s\n", spfRecord)
+			if len(issues) > 0 {
+				for _, issue := range issues {
+					yellow.Printf("[!] SPF issue: %s\n", issue)
+				}
+			}
+			if len(thirdParties) > 0 {
+				cyan.Printf("[~] SPF third-party references: %s\n", strings.Join(thirdParties, ", "))
 			}
 		}
 	}
@@ -1209,7 +1432,19 @@ func checkDNSSecurity(domain string, verboseLevel int, prettyOutput bool) map[st
 		spfMap := securityResults["email_security"].(map[string]interface{})["spf"].(map[string]interface{})
 		spfMap["exists"] = false
 		if verboseLevel >= 1 && prettyOutput {
-			red.Printf("[-] No SPF record found\n")
+			if len(allTxtRecords) > 0 {
+				red.Printf("[-] No SPF record found in TXT records (found %d TXT record(s) but none contain 'v=spf1')\n", len(allTxtRecords))
+				yellow.Printf("[!] Note: RFC 7208 requires an explicit SPF TXT record starting with 'v=spf1'\n")
+				yellow.Printf("[!]       If mxtoolbox shows SPF as enabled, it may be inferring protection from:\n")
+				yellow.Printf("[!]       1. MX records pointing to email providers (Google, Microsoft, etc.)\n")
+				yellow.Printf("[!]       2. Cached or historical SPF records\n")
+				yellow.Printf("[!]       3. Email provider infrastructure (not a valid SPF implementation)\n")
+				if verboseLevel >= 2 {
+					yellow.Printf("[!]       To properly enable SPF, add a TXT record: v=spf1 ... ~all\n")
+				}
+			} else {
+				red.Printf("[-] No SPF record found (no TXT records found)\n")
+			}
 		}
 	}
 
