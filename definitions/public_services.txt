@@ -182,4 +182,104 @@ docebo.com
 talentlms.com
 learnworlds.com
 teachable.com
-thinkific.com 
+thinkific.com
+udemy.com
+udacity.com
+
+# Microsoft Services
+teams.microsoft.com
+office.com
+office365.com
+microsoft.com
+azure.com
+outlook.office.com
+portal.office.com
+admin.microsoft.com
+
+# Google Services
+workspace.google.com
+admin.google.com
+cloud.google.com
+appspot.com
+googlecloud.com
+
+# AWS Services
+aws.amazon.com
+amazonaws.com
+cloudfront.net
+s3.amazonaws.com
+
+# Database & Backend Services
+mongodb.com
+firebase.com
+supabase.com
+planetscale.com
+neon.tech
+cockroachlabs.com
+databricks.com
+snowflake.com
+
+# CI/CD & DevOps
+jenkins.io
+circleci.com
+travis-ci.com
+gitlab.com
+github.com
+bitbucket.org
+azure-devops.com
+cloudbees.com
+
+# Monitoring & Observability
+datadoghq.com
+newrelic.com
+splunk.com
+sentry.io
+rollbar.com
+loggly.com
+sumologic.com
+dynatrace.com
+
+# Security & Compliance
+snyk.io
+veracode.com
+checkmarx.com
+rapid7.com
+qualys.com
+tenable.com
+crowdstrike.com
+paloaltonetworks.com
+
+# API Management
+konghq.com
+apigee.com
+mulesoft.com
+postman.com
+swagger.io
+stoplight.io
+
+# Content Management
+wordpress.com
+drupal.com
+joomla.com
+ghost.org
+squarespace.com
+wix.com
+weebly.com
+
+# Email Marketing
+constantcontact.com
+campaignmonitor.com
+activecampaign.com
+getresponse.com
+convertkit.com
+aweber.com
+
+# Analytics & Business Intelligence
+tableau.com
+powerbi.com
+looker.com
+mode.com
+metabase.com
+redash.io
+domo.com
+qlik.com 
